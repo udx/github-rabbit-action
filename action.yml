@@ -72,6 +72,7 @@ inputs:
   state_backend:
     description: "Override state backend type (e.g. s3, http, consul, azurerm). Unset = default gcs."
     required: false
+    default: "gcs"
   state_backend_config:
     description: "Backend config as key=value lines (e.g. bucket=my-bucket newline region=us-east-1). Required when state_backend is set."
     required: false
@@ -466,7 +467,7 @@ runs:
         aws_env=()
         if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
           aws_env+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
-          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
+          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}")
           aws_env+=(-e "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}")
           aws_env+=(-e "AWS_REGION=${AWS_REGION:-}")
         fi

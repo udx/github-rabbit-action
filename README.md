@@ -399,7 +399,7 @@ The action automatically resolves `gcp://` prefixed values to actual secret valu
 | `newrelic_account_id` | — | — | New Relic account ID |
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
-| `state_backend` | — | `gcs` | Backend type (`s3`, `azurerm`, `http`, `consul`) |
+| `state_backend` | — | `gcs` | Backend type — defaults to GCS when unset (`s3`, `azurerm`, `http`, `consul`) |
 | `state_backend_config` | — | — | Backend config as key=value lines |
 | `state_prefix_key` | — | `prefix` | Backend key for state path |
 | `source_dir` | — | `.rabbit` | Config source directory |
