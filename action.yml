@@ -82,6 +82,18 @@ inputs:
     description: "Slack incoming webhook URL for deployment notifications"
     required: false
 
+  # State backend
+  state_backend:
+    description: "Override state backend type (e.g. s3, http, consul). Unset = default gcs."
+    required: false
+  state_backend_config:
+    description: "Backend config as key=value lines (e.g. bucket=my-bucket newline region=us-east-1). Required when state_backend is set."
+    required: false
+  state_prefix_key:
+    description: "Backend-specific key for state path prefix (gcs=prefix, s3=key). Default: prefix"
+    required: false
+    default: "prefix"
+
   # Config
   source_dir:
     description: "Source directory for .rabbit configs"
@@ -494,6 +506,9 @@ runs:
         DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
         DOCKERHUB_TOKEN: ${{ inputs.dockerhub_helm_token || inputs.dockerhub_token }}
         SHARED_PROJECT: ${{ inputs.shared_project }}
+        STATE_BACKEND: ${{ inputs.state_backend }}
+        STATE_BACKEND_CONFIG: ${{ inputs.state_backend_config }}
+        STATE_PREFIX_KEY: ${{ inputs.state_prefix_key }}
         REPO_OWNER: ${{ github.repository_owner }}
         REPO_NAME: ${{ github.event.repository.name }}
       run: |
@@ -537,6 +552,9 @@ runs:
           -e "DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-}" \
           -e "DOCKERHUB_TOKEN=${DOCKERHUB_TOKEN:-}" \
           -e "SHARED_PROJECT=${SHARED_PROJECT:-}" \
+          -e "STATE_BACKEND=${STATE_BACKEND:-}" \
+          -e "STATE_BACKEND_CONFIG=${STATE_BACKEND_CONFIG:-}" \
+          -e "STATE_PREFIX_KEY=${STATE_PREFIX_KEY:-prefix}" \
           -e "GOOGLE_APPLICATION_CREDENTIALS=/github/workspace/gcp-credentials.json" \
           "${aws_env[@]}" \
           "$IMAGE" \
