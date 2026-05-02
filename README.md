@@ -2,7 +2,7 @@
 
 **Declare cloud infrastructure in YAML. Deploy with `git push`.**
 
-A GitHub Marketplace composite action that discovers YAML configuration from your `.rabbit/` directory and deploys cloud infrastructure across AWS, GCP, and Kubernetes using Terraform — all from a single `uses:` step.
+A GitHub Marketplace composite action that discovers YAML configuration from your `.rabbit/` directory and deploys cloud infrastructure across AWS, GCP, Azure, and Kubernetes using OpenTofu — all from a single `uses:` step.
 
 ---
 
@@ -22,21 +22,14 @@ on:
     branches: ["production", "staging", "develop-*"]
     paths: [".rabbit/**"]
   delete:
-  schedule:
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       plan_only:
         description: "Plan only (no apply)"
         type: boolean
         default: true
-      environment:
-        description: "Target environment"
-        type: choice
-        options: [development, staging, production]
-        default: development
       terraform_action:
-        description: "Terraform action"
+        description: "Action"
         type: choice
         options: [apply, destroy]
         default: apply
@@ -52,17 +45,75 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: udx/github-rabbit-action@v1
+      # Authenticate with your cloud provider(s) before calling the action
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: udx/github-rabbit-action@v5
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
-          gcp_auth_provider: ${{ vars.GCP_AUTH_PROVIDER }}
-          gcp_service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-          aws_region: ${{ vars.AWS_REGION }}
-          aws_role_arn: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-          slack_webhook: ${{ secrets.SLACK_WEBHOOK_ROUTINE }}
           dockerhub_username: ${{ vars.DOCKERHUB_USER_LOGIN }}
           dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN_PULL_R2A }}
-          r2a_version: "4.8.0"
+          slack_webhook: ${{ secrets.SLACK_WEBHOOK_ROUTINE }}
+          terraform_action: ${{ inputs.terraform_action || 'apply' }}
+```
+
+#### AWS-only with S3 state backend
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: udx/github-rabbit-action@v5
+        with:
+          project_id: my-project
+          state_backend: s3
+          state_backend_config: |
+            bucket = "my-tfstate-bucket"
+            region = "us-east-1"
+          state_prefix_key: key
+          terraform_action: ${{ inputs.terraform_action || 'apply' }}
+```
+
+#### Azure with azurerm state backend
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: udx/github-rabbit-action@v5
+        with:
+          project_id: my-project
+          state_backend: azurerm
+          state_backend_config: |
+            storage_account_name = "mytfstate"
+            container_name       = "tfstate"
+            resource_group_name  = "my-rg"
+          state_prefix_key: key
           terraform_action: ${{ inputs.terraform_action || 'apply' }}
 ```
 
@@ -76,13 +127,14 @@ Create YAML files inside `.rabbit/<environment>/`:
 services:
   - module: aws-route53
     id: my-domain
-    domain: example.com
-    records:
-      - type: A
-        name: ""
-        alias:
-          name: d1234.cloudfront.net
-          zone_id: Z2FDTNDATAQYW2
+    configurations:
+      domain: example.com
+      records:
+        - type: A
+          name: ""
+          alias:
+            name: d1234.cloudfront.net
+            zone_id: Z2FDTNDATAQYW2
 ```
 
 #### `.rabbit/production/20-cdn.yaml`
@@ -91,30 +143,12 @@ services:
 services:
   - module: aws-cloudfront-distribution
     id: my-cdn-#{Environment}
-    domain: example.com
-    origins:
-      - domain_name: my-app.example.com
-        origin_id: app-origin
-```
-
-#### `.rabbit/production/30-app.yaml`
-
-```yaml
-services:
-  - module: k8s-namespace
-    id: my-app
-
-  - module: k8s-deployment
-    id: my-app
-    image: my-org/my-app:latest
-    replicas: 2
-    ports:
-      - containerPort: 8080
-
-  - module: k8s-http-gateway-route
-    id: my-app
-    hostname: my-app.example.com
-    service_port: 8080
+    configurations:
+      domain: example.com
+      origins:
+        app:
+          domain_name: my-app.example.com
+          origin_id: app-origin
 ```
 
 ### 3. Push and watch
@@ -122,6 +156,36 @@ services:
 - **Open a PR** → automatic plan preview posted as PR comment
 - **Merge to production** → infrastructure applied automatically
 - **Delete a branch** → ephemeral environment destroyed
+
+---
+
+## Authentication
+
+Cloud authentication is **your workflow's responsibility**. The action auto-detects credentials from the environment:
+
+| Provider | Auth Action | Detected Via |
+| --- | --- | --- |
+| GCP | `google-github-actions/auth@v3` | `GOOGLE_APPLICATION_CREDENTIALS` file |
+| AWS | `aws-actions/configure-aws-credentials@v6` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` |
+| Azure | `azure/login@v2` | `ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID` |
+
+Only include auth steps for the providers you need. The action passes detected credentials to the IaC engine container automatically.
+
+---
+
+## State Backend
+
+By default, Terraform/OpenTofu state is stored in GCS (Google Cloud Storage). Override with any supported backend:
+
+| Backend | `state_backend` | `state_prefix_key` | Config Keys |
+| --- | --- | --- | --- |
+| GCS (default) | — | `prefix` | `bucket` |
+| S3 | `s3` | `key` | `bucket`, `region` |
+| Azure Blob | `azurerm` | `key` | `storage_account_name`, `container_name`, `resource_group_name` |
+| HTTP | `http` | — | `address`, `lock_address`, `unlock_address` |
+| Consul | `consul` | — | `address`, `path` |
+
+The backend override is injected at runtime using OpenTofu override files — no module changes needed.
 
 ---
 
@@ -147,20 +211,16 @@ services:
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   3. Cloud Auth            │
-         │   GCP Workload Identity    │
-         │   AWS OIDC (optional)      │
-         └─────────────┬──────────────┘
-                       │
-         ┌─────────────▼──────────────┐
-         │   4. Terraform Engine      │
+         │   3. IaC Engine            │
          │   Docker: r2a container    │
+         │   OpenTofu (default) or    │
+         │   Terraform (via IAC_TOOL) │
          │   Per-service init/plan/   │
          │   apply in deploy order    │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   5. Reporting             │
+         │   4. Reporting             │
          │   Plan summary table       │
          │   PR comment               │
          │   GitHub step summary      │
@@ -285,7 +345,8 @@ Each service in your YAML config follows this structure:
 services:
   - module: <module-name>       # Required: Terraform module to use
     id: <unique-id>             # Required: Unique identifier for this service
-    # ... module-specific fields
+    configurations:
+      # ... module-specific fields
 ```
 
 ### Placeholders
@@ -302,16 +363,6 @@ Use `#{Variable}` syntax in YAML values — they're replaced at runtime:
 | `#{Namespace}` | Kubernetes namespace (derived from repo name) |
 | `#{SharedProject}` | Shared GCP project ID |
 
-Example:
-
-```yaml
-services:
-  - module: k8s-deployment
-    id: my-app-#{Environment}
-    namespace: #{Namespace}
-    image: gcr.io/#{GcpProject}/my-app:latest
-```
-
 ### GCP Secret Manager References
 
 Reference secrets directly in your YAML:
@@ -320,132 +371,12 @@ Reference secrets directly in your YAML:
 services:
   - module: k8s-secret
     id: app-secrets
-    data:
-      DATABASE_URL: gcp://projects/my-project/secrets/db-url/versions/latest
+    configurations:
+      data:
+        DATABASE_URL: gcp://projects/my-project/secrets/db-url/versions/latest
 ```
 
-The action automatically resolves `gcp://` prefixed values to actual secret values at deploy time.
-
----
-
-## Setup Guide
-
-### Required GitHub Variables
-
-Set these in your repository or organization settings → Variables:
-
-| Variable | Description |
-| --- | --- |
-| `GCP_PROJECT_ID` | Google Cloud project ID |
-| `GCP_AUTH_PROVIDER` | GCP Workload Identity Provider resource name |
-| `GCP_SERVICE_ACCOUNT` | GCP Service Account email |
-
-### Optional GitHub Variables
-
-| Variable | Description |
-| --- | --- |
-| `AWS_REGION` | AWS region (e.g., `us-east-1`) |
-| `DOCKERHUB_USER_LOGIN` | Docker Hub username for image pulls |
-| `K8S_CLUSTER_NAME` | GKE cluster name |
-| `NEWRELIC_ACCOUNT_ID` | New Relic account ID |
-| `SHARED_PROJECT` | Shared GCP project for cross-project access |
-
-### Required GitHub Secrets
-
-| Secret | Description |
-| --- | --- |
-| `SLACK_WEBHOOK_ROUTINE` | Slack incoming webhook for notifications |
-
-### Optional GitHub Secrets
-
-| Secret | Description |
-| --- | --- |
-| `AWS_GITHUB_ACTIONS_ROLE_ARN` | AWS IAM OIDC role for Route53/CloudFront/WAF/ACM |
-| `DOCKERHUB_TOKEN_PULL_R2A` | Docker Hub token (paired with `DOCKERHUB_USER_LOGIN`) |
-| `DOCKERHUB_HELM_TOKEN` | Docker Hub token for Helm OCI charts |
-| `NEWRELIC_API_KEY` | New Relic API key |
-
-### Workflow Permissions
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: write    # For PR comments with plan summary
-  id-token: write         # For GCP Workload Identity & AWS OIDC
-```
-
----
-
-## Advanced Usage
-
-### Multi-Environment Overrides
-
-Override specific values per environment using subdirectories:
-
-```
-.rabbit/
-└── production/
-    ├── 10-infra.yaml          # Base production config
-    └── us-east-1/
-        └── 10-infra.yaml      # Overrides for us-east-1 environment
-```
-
-Files in subdirectories are deep-merged on top of the parent directory files. Services with matching `module::id` pairs are merged, not duplicated.
-
-### Multi-Repo Projects
-
-For monorepo or multi-repo setups where multiple repositories share infrastructure:
-
-```yaml
-- uses: udx/github-rabbit-action@v1
-  with:
-    multi_repo: "true"
-    shared_project: "shared-infra-project"
-    # ... other inputs
-```
-
-This isolates Terraform state per repository while allowing shared GCP project access.
-
-### Pinning R2A Version
-
-Always pin to a specific version for reproducible builds:
-
-```yaml
-- uses: udx/github-rabbit-action@v1
-  with:
-    r2a_version: "4.8.0"
-```
-
-### Ephemeral Environments (Branch Delete → Destroy)
-
-Add `delete` to your workflow triggers and matching feature branches:
-
-```yaml
-on:
-  delete:  # Triggers destroy when branch is deleted
-  push:
-    branches: ["production", "staging", "develop-*"]
-```
-
-When a `develop-*` branch is deleted, the action automatically runs `terraform destroy` for that environment.
-
-### Debug Mode
-
-Enable detailed config output in logs:
-
-```yaml
-- uses: udx/github-rabbit-action@v1
-  with:
-    print_config: "true"
-```
-
-### Manual Dispatch with Safety Controls
-
-The workflow dispatch inputs provide safe manual control:
-
-- **Plan only = true** → preview changes without applying
-- **Environment = production** + **Plan only = false** → blocked (safety guardrail)
-- **Terraform action = destroy** + **Environment = production** → blocked
+The action automatically resolves `gcp://` prefixed values to actual secret values at deploy time (requires GCP auth).
 
 ---
 
@@ -453,11 +384,7 @@ The workflow dispatch inputs provide safe manual control:
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `project_id` | ✅ | — | GCP project ID |
-| `gcp_auth_provider` | ✅ | — | GCP Workload Identity Provider |
-| `gcp_service_account` | ✅ | — | GCP Service Account email |
-| `aws_role_arn` | — | — | AWS IAM OIDC role ARN |
-| `aws_region` | — | — | AWS region |
+| `project_id` | yes | — | Project identifier for state isolation |
 | `dockerhub_username` | — | — | Docker Hub username |
 | `dockerhub_token` | — | — | Docker Hub pull token |
 | `dockerhub_helm_token` | — | — | Docker Hub Helm OCI token |
@@ -472,6 +399,9 @@ The workflow dispatch inputs provide safe manual control:
 | `newrelic_account_id` | — | — | New Relic account ID |
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
+| `state_backend` | — | `gcs` | Backend type (`s3`, `azurerm`, `http`, `consul`) |
+| `state_backend_config` | — | — | Backend config as key=value lines |
+| `state_prefix_key` | — | `prefix` | Backend key for state path |
 | `source_dir` | — | `.rabbit` | Config source directory |
 | `github_token` | — | `github.token` | GitHub token for PR comments |
 
@@ -488,48 +418,6 @@ The workflow dispatch inputs provide safe manual control:
 | `cloudfront_distribution_id` | CloudFront distribution ID (if applicable) |
 | `k8s_namespace` | Kubernetes namespace |
 | `config_path` | Path to merged config file |
-
----
-
-## What You'll See
-
-### GitHub Step Summary
-
-Every run writes a configuration summary and deployment results to the GitHub Actions step summary — visible directly on the Actions run page.
-
-### PR Comments
-
-Pull requests get an automatically updated comment with a detailed Terraform plan breakdown:
-
-```
-## Terraform Plan Summary
-
-| Module / Service | Add | Change | Destroy |
-| --- | --- | --- | --- |
-| **Total** | 5 | 2 | 0 |
-| `aws-cloudfront-distribution/my-cdn` | 0 | 1 | 0 |
-| `k8s-deployment/my-app` | 3 | 1 | 0 |
-| `k8s-http-gateway-route/my-app` | 2 | 0 | 0 |
-```
-
-### Slack Notifications
-
-Notifications are sent when:
-- Infrastructure changes are detected or applied
-- Any step fails
-
-Notifications include environment, change counts, failure stage, and a link to the action run.
-
----
-
-## Pro Tips
-
-- **Use a Docker Hub token** (`dockerhub_username` + `dockerhub_token`) to prevent rate limits when pulling the R2A image
-- **Pin `r2a_version`** to a specific tag for reproducible deploys (e.g., `4.8.0` instead of `latest`)
-- **Name files with numeric prefixes** (`10-dns.yaml`, `20-cdn.yaml`, `30-app.yaml`) for deterministic ordering
-- **Use `#{Environment}` placeholders** in service IDs to keep configs environment-aware
-- **Schedule nightly runs** (`cron: "0 2 * * *"`) to detect infrastructure drift
-- **Keep `.rabbit/` configs small and focused** — one concern per file
 
 ---
 
