@@ -9,22 +9,8 @@ branding:
 inputs:
   # Required
   project_id:
-    description: "GCP project ID for Terraform state and resource operations"
+    description: "Project identifier for state isolation and resource scoping"
     required: true
-  gcp_auth_provider:
-    description: "GCP Workload Identity Federation provider resource name"
-    required: false
-  gcp_service_account:
-    description: "GCP service account email for Workload Identity"
-    required: false
-
-  # Auth
-  aws_role_arn:
-    description: "AWS IAM OIDC role ARN for Route53, CloudFront, WAF, ACM"
-    required: false
-  aws_region:
-    description: "AWS region"
-    required: false
 
   # Docker
   dockerhub_username:
@@ -47,7 +33,7 @@ inputs:
     required: false
     default: "apply"
   plan_only:
-    description: "Override plan mode (auto-detected: PRs and schedules → true, pushes → false)"
+    description: "Override plan mode (auto-detected: PRs and schedules -> true, pushes -> false)"
     required: false
   environment:
     description: "Override environment name (auto-detected from branch name)"
@@ -84,13 +70,13 @@ inputs:
 
   # State backend
   state_backend:
-    description: "Override state backend type (e.g. s3, http, consul). Unset = default gcs."
+    description: "Override state backend type (e.g. s3, http, consul, azurerm). Unset = default gcs."
     required: false
   state_backend_config:
     description: "Backend config as key=value lines (e.g. bucket=my-bucket newline region=us-east-1). Required when state_backend is set."
     required: false
   state_prefix_key:
-    description: "Backend-specific key for state path prefix (gcs=prefix, s3=key). Default: prefix"
+    description: "Backend-specific key for state path prefix (gcs=prefix, s3=key, azurerm=key). Default: prefix"
     required: false
     default: "prefix"
 
@@ -373,7 +359,6 @@ runs:
         TRIGGER: ${{ github.event_name }}
         R2A_VERSION: ${{ inputs.r2a_version }}
         MULTI_REPO: ${{ inputs.multi_repo }}
-        HAS_AWS: ${{ inputs.aws_role_arn != '' && inputs.aws_region != '' }}
       run: |
         config_items="$(printf '%s' "${DETECTED_CONFIGS:-none}" | sed "s/#{Environment}/$ENV_NAME/g" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sed '/^$/d')"
 
@@ -391,7 +376,6 @@ runs:
           echo "| Lifecycle | \`${LIFECYCLE:-unknown}\` |"
           echo "| Plan Only | \`${PLAN_ONLY:-true}\` |"
           echo "| Multi Repo | \`${MULTI_REPO:-false}\` |"
-          echo "| AWS Enabled | \`${HAS_AWS}\` |"
           echo ""
           echo "### Detected Configs"
           echo ""
@@ -413,28 +397,7 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     # =========================================================================
-    # 10. Authenticate with Google Cloud
-    # =========================================================================
-    - name: Authenticate with Google Cloud
-      id: gcp-auth
-      if: steps.safety.outputs.should_deploy == 'true' && inputs.gcp_auth_provider != '' && inputs.gcp_service_account != ''
-      uses: google-github-actions/auth@v3
-      with:
-        workload_identity_provider: ${{ inputs.gcp_auth_provider }}
-        service_account: ${{ inputs.gcp_service_account }}
-
-    # =========================================================================
-    # 11. Configure AWS credentials (optional)
-    # =========================================================================
-    - name: Configure AWS credentials
-      if: steps.safety.outputs.should_deploy == 'true' && inputs.aws_role_arn != '' && inputs.aws_region != ''
-      uses: aws-actions/configure-aws-credentials@v6
-      with:
-        role-to-assume: ${{ inputs.aws_role_arn }}
-        aws-region: ${{ inputs.aws_region }}
-
-    # =========================================================================
-    # 12. Prepare artifacts directory
+    # 10. Prepare artifacts directory
     # =========================================================================
     - name: Prepare artifacts directory
       if: steps.safety.outputs.should_deploy == 'true'
@@ -444,22 +407,7 @@ runs:
         chmod -R 777 terraform/plans
 
     # =========================================================================
-    # 13. Prepare GCP credentials for Docker volume mount
-    # =========================================================================
-    - name: Prepare Workload Identity credentials
-      id: prepare-creds
-      if: steps.safety.outputs.should_deploy == 'true' && steps.gcp-auth.outputs.credentials_file_path != ''
-      shell: bash
-      env:
-        CRED_FILE_PATH: ${{ steps.gcp-auth.outputs.credentials_file_path }}
-      run: |
-        set -euo pipefail
-        cp "$CRED_FILE_PATH" gcp-credentials.json
-        chmod 644 gcp-credentials.json
-        echo "credentials_path=$(pwd)/gcp-credentials.json" >> "$GITHUB_OUTPUT"
-
-    # =========================================================================
-    # 14. Docker login and pull R2A image
+    # 11. Docker login and pull R2A image
     # =========================================================================
     - name: Docker login and pull R2A image
       if: steps.safety.outputs.should_deploy == 'true'
@@ -473,16 +421,13 @@ runs:
         IMAGE="usabilitydynamics/rabbit-automation-action:${R2A_VERSION}"
 
         if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
-          echo "🔐 Logging in to Docker Hub..."
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
         fi
 
-        echo "📦 Pulling $IMAGE..."
         docker pull "$IMAGE"
-        echo "✓ Image pulled successfully"
 
     # =========================================================================
-    # 15. Run Rabbit Automation Action (Terraform engine)
+    # 12. Run Rabbit Automation Action (IaC engine)
     # =========================================================================
     - name: Run Rabbit Automation Action
       id: terraform
@@ -516,27 +461,36 @@ runs:
         IMAGE="usabilitydynamics/rabbit-automation-action:${R2A_VERSION}"
         ARTIFACTS_PATH="terraform/plans"
 
-        # Build AWS env vars (may be empty if AWS not configured)
+        # Build cloud credential env vars from caller's auth steps
+        # AWS: auto-detected from aws-actions/configure-aws-credentials
         aws_env=()
         if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
           aws_env+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
           aws_env+=(-e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
-          aws_env+=(-e "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}")
+          aws_env+=(-e "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}")
           aws_env+=(-e "AWS_REGION=${AWS_REGION:-}")
-        else
-          aws_env+=(-e "AWS_ACCESS_KEY_ID=")
-          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=")
-          aws_env+=(-e "AWS_SESSION_TOKEN=")
-          aws_env+=(-e "AWS_REGION=")
         fi
 
-        # Build GCP env vars (may be empty if GCP not configured)
+        # GCP: auto-detected from google-github-actions/auth
         gcp_env=()
-        if [[ -f "$(pwd)/gcp-credentials.json" ]]; then
+        if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" && -f "${GOOGLE_APPLICATION_CREDENTIALS}" ]]; then
+          cp "${GOOGLE_APPLICATION_CREDENTIALS}" "$(pwd)/gcp-credentials.json"
+          chmod 644 "$(pwd)/gcp-credentials.json"
           gcp_env+=(-e "GOOGLE_APPLICATION_CREDENTIALS=/github/workspace/gcp-credentials.json")
         fi
 
-        echo "🐰 Running Rabbit Automation Action..."
+        # Azure: auto-detected from azure/login
+        azure_env=()
+        if [[ -n "${ARM_CLIENT_ID:-}" ]]; then
+          azure_env+=(-e "ARM_CLIENT_ID=${ARM_CLIENT_ID}")
+          azure_env+=(-e "ARM_CLIENT_SECRET=${ARM_CLIENT_SECRET:-}")
+          azure_env+=(-e "ARM_TENANT_ID=${ARM_TENANT_ID:-}")
+          azure_env+=(-e "ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID:-}")
+        fi
+        if [[ -n "${ARM_ACCESS_KEY:-}" ]]; then
+          azure_env+=(-e "ARM_ACCESS_KEY=${ARM_ACCESS_KEY}")
+        fi
+
         docker run --rm \
           -v "$(pwd):/github/workspace" \
           -e "GCP_PROJECT=${PROJECT_ID}" \
@@ -562,12 +516,13 @@ runs:
           -e "STATE_BACKEND_CONFIG=${STATE_BACKEND_CONFIG:-}" \
           -e "STATE_PREFIX_KEY=${STATE_PREFIX_KEY:-prefix}" \
           ${gcp_env[@]+"${gcp_env[@]}"} \
-          "${aws_env[@]}" \
+          ${aws_env[@]+"${aws_env[@]}"} \
+          ${azure_env[@]+"${azure_env[@]}"} \
           "$IMAGE" \
           /usr/local/bin/entrypoint.sh
 
         echo ""
-        echo "📋 Artifacts generated:"
+        echo "Artifacts generated:"
         ls -la "$ARTIFACTS_PATH" 2>/dev/null || echo "No artifacts directory found"
 
         # Extract CloudFront distribution ID from terraform outputs
@@ -588,7 +543,7 @@ runs:
         echo "aws_cloudfront_distribution_id=${cloudfront_distribution_id}" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 16. Upload terraform artifacts
+    # 13. Upload terraform artifacts
     # =========================================================================
     - name: Upload terraform artifacts
       if: steps.safety.outputs.should_deploy == 'true'
@@ -600,7 +555,7 @@ runs:
         if-no-files-found: warn
 
     # =========================================================================
-    # 17. Render plan summary
+    # 14. Render plan summary
     # =========================================================================
     - name: Render plan summary
       id: plan-summary
@@ -649,7 +604,7 @@ runs:
         bash "${GITHUB_ACTION_PATH}/bin/render-plan-summary.sh" "$summary_file" "$ARTIFACTS_PATH/plan-summary.md"
 
     # =========================================================================
-    # 18. Write deployment summary
+    # 15. Write deployment summary
     # =========================================================================
     - name: Write deployment summary
       if: always() && steps.safety.outputs.should_deploy == 'true'
@@ -693,7 +648,7 @@ runs:
         fi
 
     # =========================================================================
-    # 19. Post PR comment with plan summary
+    # 16. Post PR comment with plan summary
     # =========================================================================
     - name: Post PR comment with plan summary
       if: github.event_name == 'pull_request' && steps.plan-summary.outputs.has_changes == 'true'
@@ -754,7 +709,7 @@ runs:
           }
 
     # =========================================================================
-    # 20. Upload terraform plan files
+    # 17. Upload terraform plan files
     # =========================================================================
     - name: Upload terraform plans
       if: steps.plan-summary.outputs.has_changes == 'true'
@@ -766,7 +721,7 @@ runs:
         if-no-files-found: ignore
 
     # =========================================================================
-    # 21. Send Slack notification
+    # 18. Send Slack notification
     # =========================================================================
     - name: Send Slack notification
       if: always() && inputs.slack_webhook != '' && (steps.plan-summary.outputs.has_changes == 'true' || steps.terraform.outcome == 'failure' || steps.safety.outcome == 'failure')
