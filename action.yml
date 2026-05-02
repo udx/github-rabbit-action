@@ -548,7 +548,7 @@ runs:
     - name: Upload terraform artifacts
       if: steps.safety.outputs.should_deploy == 'true'
       continue-on-error: true
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: terraform-artifacts-${{ steps.resolve-env.outputs.environment }}
         path: terraform/plans
@@ -714,7 +714,7 @@ runs:
     - name: Upload terraform plans
       if: steps.plan-summary.outputs.has_changes == 'true'
       continue-on-error: true
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: terraform-plans-${{ steps.resolve-env.outputs.environment }}
         path: terraform/plans/*.tfplan
