@@ -13,10 +13,10 @@ inputs:
     required: true
   gcp_auth_provider:
     description: "GCP Workload Identity Federation provider resource name"
-    required: true
+    required: false
   gcp_service_account:
     description: "GCP service account email for Workload Identity"
-    required: true
+    required: false
 
   # Auth
   aws_role_arn:
@@ -417,7 +417,7 @@ runs:
     # =========================================================================
     - name: Authenticate with Google Cloud
       id: gcp-auth
-      if: steps.safety.outputs.should_deploy == 'true'
+      if: steps.safety.outputs.should_deploy == 'true' && inputs.gcp_auth_provider != '' && inputs.gcp_service_account != ''
       uses: google-github-actions/auth@v3
       with:
         workload_identity_provider: ${{ inputs.gcp_auth_provider }}
@@ -448,7 +448,7 @@ runs:
     # =========================================================================
     - name: Prepare Workload Identity credentials
       id: prepare-creds
-      if: steps.safety.outputs.should_deploy == 'true'
+      if: steps.safety.outputs.should_deploy == 'true' && steps.gcp-auth.outputs.credentials_file_path != ''
       shell: bash
       env:
         CRED_FILE_PATH: ${{ steps.gcp-auth.outputs.credentials_file_path }}
@@ -530,6 +530,12 @@ runs:
           aws_env+=(-e "AWS_REGION=")
         fi
 
+        # Build GCP env vars (may be empty if GCP not configured)
+        gcp_env=()
+        if [[ -f "$(pwd)/gcp-credentials.json" ]]; then
+          gcp_env+=(-e "GOOGLE_APPLICATION_CREDENTIALS=/github/workspace/gcp-credentials.json")
+        fi
+
         echo "🐰 Running Rabbit Automation Action..."
         docker run --rm \
           -v "$(pwd):/github/workspace" \
@@ -555,7 +561,7 @@ runs:
           -e "STATE_BACKEND=${STATE_BACKEND:-}" \
           -e "STATE_BACKEND_CONFIG=${STATE_BACKEND_CONFIG:-}" \
           -e "STATE_PREFIX_KEY=${STATE_PREFIX_KEY:-prefix}" \
-          -e "GOOGLE_APPLICATION_CREDENTIALS=/github/workspace/gcp-credentials.json" \
+          ${gcp_env[@]+"${gcp_env[@]}"} \
           "${aws_env[@]}" \
           "$IMAGE" \
           /usr/local/bin/entrypoint.sh
