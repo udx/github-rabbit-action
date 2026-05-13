@@ -355,13 +355,11 @@ Use `#{Variable}` syntax in YAML values — they're replaced at runtime:
 
 | Placeholder | Value |
 | --- | --- |
-| `#{Environment}` | Resolved environment name |
-| `#{Lifecycle}` | Resolved lifecycle (production/staging/development) |
-| `#{GcpProject}` | GCP project ID |
-| `#{GitOwner}` | GitHub repository owner |
-| `#{GitRepository}` | GitHub repository name |
-| `#{Namespace}` | Kubernetes namespace (derived from repo name) |
-| `#{SharedProject}` | Shared GCP project ID |
+| `#{Environment}` | Environment name (from `$ENV_NAME`) |
+| `#{Lifecycle}` | Lifecycle stage: production, staging, or development (from `$LIFECYCLE`) |
+| `#{Project}` | GCP project ID (from `$GCP_PROJECT`) |
+| `#{Owner}` | GitHub repository owner (from `$GIT_OWNER`) |
+| `#{Repository}` | GitHub repository name (from `$GIT_REPOSITORY`) |
 
 ### GCP Secret Manager References
 
@@ -373,10 +371,10 @@ services:
     id: app-secrets
     configurations:
       data:
-        DATABASE_URL: gcp://projects/my-project/secrets/db-url/versions/latest
+        DATABASE_URL: projects/123456789/secrets/db-url/versions/latest
 ```
 
-The action automatically resolves `gcp://` prefixed values to actual secret values at deploy time (requires GCP auth).
+The action automatically resolves values matching the `projects/{id}/secrets/{name}` pattern to actual secret values at deploy time (requires `roles/secretmanager.secretAccessor` on the service account).
 
 ---
 
