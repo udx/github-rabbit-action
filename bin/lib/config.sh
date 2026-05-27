@@ -80,8 +80,11 @@ export SUBDIR_PREFERRED_LIFECYCLE="${INPUT_SUBDIR_PREFERRED_LIFECYCLE:-$DEFAULT_
 export PROTECTED_BRANCH_LIFECYCLE="${INPUT_PROTECTED_BRANCH_LIFECYCLE:-$DEFAULT_PROTECTED_BRANCH_LIFECYCLE}"
 export FALLBACK_LIFECYCLE="${INPUT_FALLBACK_LIFECYCLE:-$DEFAULT_FALLBACK_LIFECYCLE}"
 
-# Exported lifecycle (set in main function)
-export LIFECYCLE=""
+# Exported lifecycle metadata. INPUT_LIFECYCLE is supplied by udx/rabbit-lifecycle
+# in the composite action path; local script runs can still resolve internally.
+export LIFECYCLE="${INPUT_LIFECYCLE:-}"
+export IS_PROTECTED="${INPUT_IS_PROTECTED:-}"
+export RESOLUTION_REASON="${INPUT_RESOLUTION_REASON:-}"
 
 # ============================================================================
 # INPUT PARAMETERS

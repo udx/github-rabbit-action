@@ -98,7 +98,13 @@ outputs:
     value: ${{ steps.resolve-env.outputs.environment }}
   lifecycle:
     description: "Resolved lifecycle (production, staging, development)"
-    value: ${{ steps.merge-configs.outputs.lifecycle }}
+    value: ${{ steps.resolve-env.outputs.lifecycle }}
+  is_protected:
+    description: "Whether GitHub reported the resolved environment branch as protected"
+    value: ${{ steps.resolve-lifecycle.outputs.is_protected }}
+  resolution_reason:
+    description: "Lifecycle rule that selected the lifecycle"
+    value: ${{ steps.resolve-lifecycle.outputs.resolution_reason }}
   plan_only:
     description: "Whether the run was plan-only"
     value: ${{ steps.plan-mode.outputs.plan_only }}
@@ -125,28 +131,46 @@ runs:
   using: "composite"
   steps:
     # =========================================================================
-    # 1. Install yq
+    # 1. Resolve Rabbit lifecycle
     # =========================================================================
-    - name: Install yq
+    - name: Resolve Rabbit lifecycle
+      id: resolve-lifecycle
+      uses: udx/rabbit-lifecycle@lifecycle-action-contract
+      with:
+        source_dir: ${{ inputs.source_dir }}
+        env_name: ${{ inputs.environment || (github.event_name == 'pull_request' && github.base_ref) || (github.event_name == 'delete' && github.event.ref) || github.ref_name }}
+        github_token: ${{ inputs.github_token }}
+
+    # =========================================================================
+    # 2. Install pinned yq
+    # =========================================================================
+    - name: Install pinned yq
       shell: bash
       run: |
         set -euo pipefail
-        if ! command -v yq >/dev/null 2>&1; then
-          echo "Installing yq..."
-          curl -sSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
-          chmod +x /usr/local/bin/yq
-        fi
+        version="v4.44.3"
+        install_dir="${RUNNER_TEMP:-/tmp}/rabbit-action-bin"
+        mkdir -p "$install_dir"
+
+        url="https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_amd64"
+        curl -fsSL "$url" -o "$install_dir/yq"
+        chmod +x "$install_dir/yq"
+        echo "$install_dir" >> "$GITHUB_PATH"
+        export PATH="$install_dir:$PATH"
         yq --version
 
     # =========================================================================
-    # 2. Merge infrastructure configs
+    # 3. Merge infrastructure configs
     # =========================================================================
     - name: Merge infrastructure configs
       id: merge-configs
       shell: bash
       env:
         INPUT_SOURCE_DIR: ${{ inputs.source_dir }}
-        INPUT_ENV_NAME: ${{ inputs.environment || (github.event_name == 'pull_request' && github.base_ref) || (github.event_name == 'delete' && github.event.ref) || github.ref_name }}
+        INPUT_ENV_NAME: ${{ steps.resolve-lifecycle.outputs.environment }}
+        INPUT_LIFECYCLE: ${{ steps.resolve-lifecycle.outputs.lifecycle }}
+        INPUT_IS_PROTECTED: ${{ steps.resolve-lifecycle.outputs.is_protected }}
+        INPUT_RESOLUTION_REASON: ${{ steps.resolve-lifecycle.outputs.resolution_reason }}
         GITHUB_TOKEN: ${{ inputs.github_token }}
         INPUT_EXCLUDE: "**/merged*.yml,**/merged*.yaml"
         INPUT_RECURSIVE: "true"
@@ -160,7 +184,7 @@ runs:
         bash "${GITHUB_ACTION_PATH}/bin/merge-configs.sh"
 
     # =========================================================================
-    # 3. Resolve environment
+    # 4. Resolve environment
     # =========================================================================
     - name: Resolve environment
       id: resolve-env
@@ -169,13 +193,15 @@ runs:
         MERGED_ENV: ${{ steps.merge-configs.outputs.environment }}
         MERGED_LIFECYCLE: ${{ steps.merge-configs.outputs.lifecycle }}
         MERGED_CONFIG_PATH: ${{ steps.merge-configs.outputs.merged_config }}
+        RESOLVED_ENV: ${{ steps.resolve-lifecycle.outputs.environment }}
+        RESOLVED_LIFECYCLE: ${{ steps.resolve-lifecycle.outputs.lifecycle }}
         EVENT_NAME: ${{ github.event_name }}
         EVENT_REF_TYPE: ${{ github.event.ref_type }}
         REQUESTED_ENV: ${{ inputs.environment || (github.event_name == 'pull_request' && github.base_ref) || (github.event_name == 'delete' && github.event.ref) || github.ref_name }}
       run: |
         set -euo pipefail
-        environment="$MERGED_ENV"
-        lifecycle="$MERGED_LIFECYCLE"
+        environment="${RESOLVED_ENV:-$MERGED_ENV}"
+        lifecycle="${RESOLVED_LIFECYCLE:-$MERGED_LIFECYCLE}"
 
         if [[ "$EVENT_NAME" == "delete" && "$EVENT_REF_TYPE" == "branch" && -n "$REQUESTED_ENV" && "$environment" != "$REQUESTED_ENV" ]]; then
           echo "::error title=❌ Environment Resolution Mismatch::Delete requested '$REQUESTED_ENV' but resolved '$environment'. Aborting to prevent wrong-environment destroy."
@@ -191,7 +217,7 @@ runs:
         echo "Config path: $MERGED_CONFIG_PATH"
 
     # =========================================================================
-    # 4. Determine plan mode
+    # 5. Determine plan mode
     # =========================================================================
     - name: Determine plan mode
       id: plan-mode
@@ -223,7 +249,7 @@ runs:
         fi
 
     # =========================================================================
-    # 5. Determine terraform action
+    # 6. Determine terraform action
     # =========================================================================
     - name: Determine terraform action
       id: terraform-action
@@ -253,7 +279,7 @@ runs:
         echo "Terraform action: $terraform_action"
 
     # =========================================================================
-    # 6. Safety checks
+    # 7. Safety checks
     # =========================================================================
     - name: Safety checks
       id: safety
@@ -289,7 +315,7 @@ runs:
         echo "should_deploy=true" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 7. Resolve deployment metadata
+    # 8. Resolve deployment metadata
     # =========================================================================
     - name: Resolve deployment metadata
       id: deployment-metadata
@@ -305,7 +331,7 @@ runs:
         echo "K8s namespace: $namespace"
 
     # =========================================================================
-    # 8. Detect config services for summary
+    # 9. Detect config services for summary
     # =========================================================================
     - name: Detect configured services
       id: detect-services
@@ -345,7 +371,7 @@ runs:
         echo "detected_configs=$detected_configs" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 9. Write configuration summary
+    # 10. Write configuration summary
     # =========================================================================
     - name: Write configuration summary
       if: always()
@@ -401,7 +427,7 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     # =========================================================================
-    # 10. Authenticate with Google Cloud
+    # 11. Authenticate with Google Cloud
     # =========================================================================
     - name: Authenticate with Google Cloud
       id: gcp-auth
@@ -412,7 +438,7 @@ runs:
         service_account: ${{ inputs.gcp_service_account }}
 
     # =========================================================================
-    # 11. Configure AWS credentials (optional)
+    # 12. Configure AWS credentials (optional)
     # =========================================================================
     - name: Configure AWS credentials
       if: steps.safety.outputs.should_deploy == 'true' && inputs.aws_role_arn != '' && inputs.aws_region != ''
@@ -422,7 +448,7 @@ runs:
         aws-region: ${{ inputs.aws_region }}
 
     # =========================================================================
-    # 12. Prepare artifacts directory
+    # 13. Prepare artifacts directory
     # =========================================================================
     - name: Prepare artifacts directory
       if: steps.safety.outputs.should_deploy == 'true'
@@ -432,7 +458,7 @@ runs:
         chmod -R 777 terraform/plans
 
     # =========================================================================
-    # 13. Prepare GCP credentials for Docker volume mount
+    # 14. Prepare GCP credentials for Docker volume mount
     # =========================================================================
     - name: Prepare Workload Identity credentials
       id: prepare-creds
@@ -447,7 +473,7 @@ runs:
         echo "credentials_path=$(pwd)/gcp-credentials.json" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 14. Docker login and pull R2A image
+    # 15. Docker login and pull R2A image
     # =========================================================================
     - name: Docker login and pull R2A image
       if: steps.safety.outputs.should_deploy == 'true'
@@ -470,7 +496,7 @@ runs:
         echo "✓ Image pulled successfully"
 
     # =========================================================================
-    # 15. Run Rabbit Automation Action (Terraform engine)
+    # 16. Run Rabbit Automation Action (Terraform engine)
     # =========================================================================
     - name: Run Rabbit Automation Action
       id: terraform
@@ -564,7 +590,7 @@ runs:
         echo "aws_cloudfront_distribution_id=${cloudfront_distribution_id}" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 16. Upload terraform artifacts
+    # 17. Upload terraform artifacts
     # =========================================================================
     - name: Upload terraform artifacts
       if: steps.safety.outputs.should_deploy == 'true'
@@ -576,7 +602,7 @@ runs:
         if-no-files-found: warn
 
     # =========================================================================
-    # 17. Render plan summary
+    # 18. Render plan summary
     # =========================================================================
     - name: Render plan summary
       id: plan-summary
@@ -625,7 +651,7 @@ runs:
         bash "${GITHUB_ACTION_PATH}/bin/render-plan-summary.sh" "$summary_file" "$ARTIFACTS_PATH/plan-summary.md"
 
     # =========================================================================
-    # 18. Write deployment summary
+    # 19. Write deployment summary
     # =========================================================================
     - name: Write deployment summary
       if: always() && steps.safety.outputs.should_deploy == 'true'
@@ -669,7 +695,7 @@ runs:
         fi
 
     # =========================================================================
-    # 19. Post PR comment with plan summary
+    # 20. Post PR comment with plan summary
     # =========================================================================
     - name: Post PR comment with plan summary
       if: github.event_name == 'pull_request' && steps.plan-summary.outputs.has_changes == 'true'
@@ -730,7 +756,7 @@ runs:
           }
 
     # =========================================================================
-    # 20. Upload terraform plan files
+    # 21. Upload terraform plan files
     # =========================================================================
     - name: Upload terraform plans
       if: steps.plan-summary.outputs.has_changes == 'true'
@@ -742,7 +768,7 @@ runs:
         if-no-files-found: ignore
 
     # =========================================================================
-    # 21. Send Slack notification
+    # 22. Send Slack notification
     # =========================================================================
     - name: Send Slack notification
       if: always() && inputs.slack_webhook != '' && (steps.plan-summary.outputs.has_changes == 'true' || steps.terraform.outcome == 'failure' || steps.safety.outcome == 'failure')

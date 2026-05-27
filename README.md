@@ -132,11 +132,16 @@ services:
 │ GitHub Action Trigger (push / PR / delete / manual) │
 └──────────────────────┬──────────────────────────────┘
                        │
-         ┌─────────────▼──────────────┐
-         │   1. Merge Configs         │
-         │   Discover .rabbit/ YAML   │
-         │   Resolve lifecycle        │
-         │   Deep merge by module::id │
+        ┌─────────────▼──────────────┐
+        │   1. Resolve Lifecycle     │
+        │   Branch/env policy via    │
+        │   udx/rabbit-lifecycle     │
+        └─────────────┬──────────────┘
+                      │
+        ┌─────────────▼──────────────┐
+        │   2. Merge Configs         │
+        │   Discover .rabbit/ YAML   │
+        │   Deep merge by module::id │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
@@ -170,7 +175,7 @@ services:
 
 ### Environment Detection
 
-The environment is automatically resolved from:
+The environment is automatically resolved from the workflow event, then passed to `udx/rabbit-lifecycle` for lifecycle policy resolution:
 
 | Trigger | Environment Source |
 | --- | --- |
@@ -201,7 +206,8 @@ Infrastructure configs live in `.rabbit/` directories organized by lifecycle:
 
 - Files are sorted by name (`10-infra.yaml` before `20-monitoring.yaml`)
 - Services with the same `module::id` are deep-merged across files
-- Root-level files in `.rabbit/` are ignored (must be in a lifecycle directory)
+- Root-level files in the configured `source_dir` are ignored (must be in a lifecycle directory)
+- Only direct lifecycle roots under `source_dir` are eligible; use `source_dir: .rabbit/infra_configs` for nested config roots
 
 ### Plan Mode
 
@@ -473,7 +479,7 @@ The workflow dispatch inputs provide safe manual control:
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
 | `source_dir` | — | `.rabbit` | Config source directory |
-| `github_token` | — | `github.token` | GitHub token for PR comments |
+| `github_token` | — | `github.token` | GitHub token for lifecycle branch protection checks and PR comments |
 
 ## Outputs
 
@@ -481,6 +487,8 @@ The workflow dispatch inputs provide safe manual control:
 | --- | --- |
 | `environment` | Resolved environment name |
 | `lifecycle` | Resolved lifecycle (production/staging/development) |
+| `is_protected` | Whether GitHub reported the environment branch as protected |
+| `resolution_reason` | Lifecycle rule that selected the lifecycle |
 | `plan_only` | Whether run was plan-only |
 | `terraform_action` | Action executed (apply/destroy/skip) |
 | `has_changes` | Whether Terraform detected changes |
@@ -528,6 +536,7 @@ Notifications include environment, change counts, failure stage, and a link to t
 - **Pin `r2a_version`** to a specific tag for reproducible deploys (e.g., `4.8.0` instead of `latest`)
 - **Name files with numeric prefixes** (`10-dns.yaml`, `20-cdn.yaml`, `30-app.yaml`) for deterministic ordering
 - **Use `#{Environment}` placeholders** in service IDs to keep configs environment-aware
+- **Set `source_dir` explicitly** when configs live below `.rabbit/infra_configs` or another nested root
 - **Schedule nightly runs** (`cron: "0 2 * * *"`) to detect infrastructure drift
 - **Keep `.rabbit/` configs small and focused** — one concern per file
 

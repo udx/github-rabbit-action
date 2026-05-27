@@ -9,7 +9,6 @@ fi
 # Source dependencies
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$LIB_DIR/logging.sh"
-source "$LIB_DIR/github.sh"
 source "$LIB_DIR/discovery.sh"
 
 # Note: Configuration is set in index.sh and passed via environment variables:
@@ -22,8 +21,8 @@ source "$LIB_DIR/discovery.sh"
 #
 # Lifecycle Rules (applied throughout the codebase):
 # - Only configured subdirectory lifecycles support lifecycle/<env>/ smart merge
-# - Protected branches map to configured protected lifecycle
-# - Unmatched environments map to configured fallback lifecycle
+# - Pre-resolved lifecycle metadata comes from udx/rabbit-lifecycle in the action path
+# - Local fallback does not inspect GitHub branch protection
 
 # Build lifecycle arrays from environment variables
 IFS=',' read -ra STABLE_LIFECYCLES <<< "${STABLE_LIFECYCLES_STR}"
@@ -101,14 +100,8 @@ _find_env_directory() {
     echo "$result"
 }
 
-# PRIVATE: Determine lifecycle for environment
-# Returns: lifecycle name (production/staging/development)
-# Resolution order:
-# 1. Check if env name matches configured explicit lifecycle names
-# 2. Check if configured subdir-preferred lifecycle has env subdirectory
-# 3. Check branch protection:
-#    - Protected → configured protected lifecycle
-#    - Not protected → configured fallback lifecycle
+# PRIVATE: Minimal local fallback for direct script usage.
+# The composite action passes INPUT_LIFECYCLE from udx/rabbit-lifecycle.
 _determine_lifecycle_for_env() {
     local env_name="$1"
     shift
@@ -130,15 +123,9 @@ _determine_lifecycle_for_env() {
         echo "$SUBDIR_PREFERRED_LIFECYCLE"
         return
     fi
-    
-    # Check branch protection
-    if github_check_branch_protection "$env_name"; then
-        dbg "Branch '$env_name' is protected → $PROTECTED_BRANCH_LIFECYCLE lifecycle" >&2
-        echo "$PROTECTED_BRANCH_LIFECYCLE"
-    else
-        dbg "Branch '$env_name' not protected → $FALLBACK_LIFECYCLE lifecycle" >&2
-        echo "$FALLBACK_LIFECYCLE"
-    fi
+
+    dbg "No pre-resolved lifecycle for '$env_name'; using local fallback lifecycle '$FALLBACK_LIFECYCLE'" >&2
+    echo "$FALLBACK_LIFECYCLE"
 }
 
 # PUBLIC: Get lifecycle and directory info for environment
@@ -152,21 +139,28 @@ lifecycle_get_info() {
     shift
     local unique_dirs=("$@")
     
-    # Check if this is a protected branch (before determining lifecycle)
-    local is_protected="false"
-    if github_check_branch_protection "$env_name"; then
-        is_protected="true"
+    local lifecycle="${LIFECYCLE:-}"
+    local is_protected="${IS_PROTECTED:-false}"
+    local result
+
+    if [[ -n "$lifecycle" ]]; then
+        dbg "Using pre-resolved lifecycle for '$env_name': $lifecycle" >&2
+        result=$(_find_directory_for_lifecycle "$lifecycle" "$env_name" "${unique_dirs[@]}")
+    else
+        lifecycle=$(_determine_lifecycle_for_env "$env_name" "${unique_dirs[@]}")
+        dbg "Determined lifecycle for '$env_name': $lifecycle" >&2
+
+        # Find directory for this environment
+        result=$(_find_env_directory "$env_name" "${unique_dirs[@]}")
     fi
-    
-    # Determine lifecycle for this environment
-    local lifecycle=$(_determine_lifecycle_for_env "$env_name" "${unique_dirs[@]}")
-    dbg "Determined lifecycle for '$env_name': $lifecycle" >&2
-    
-    # Find directory for this environment
-    local result=$(_find_env_directory "$env_name" "${unique_dirs[@]}")
+
     local best_dir=$(echo "$result" | cut -d'|' -f1)
     local actual_lifecycle=$(echo "$result" | cut -d'|' -f2)
-    
+
+    if [[ -z "$actual_lifecycle" ]]; then
+        actual_lifecycle="$lifecycle"
+    fi
+
     echo "$actual_lifecycle|$best_dir|$is_protected"
 }
 
@@ -184,8 +178,15 @@ lifecycle_detect_environments() {
     
     # Find all directories with YAML files
     while IFS= read -r dir; do
+        local relative_dir="${dir#$source_dir/}"
+        local lifecycle_root="${relative_dir%%/*}"
         local dir_name=$(basename "$dir")
         local parent_name=$(basename "$(dirname "$dir")")
+
+        if [[ ",$ALL_LIFECYCLES_STR," != *",$lifecycle_root,"* ]]; then
+            dbg "Ignoring directory outside configured lifecycle roots: $dir" >&2
+            continue
+        fi
         
         # Skip hidden/common directories
         if discovery_should_skip_directory "$dir_name"; then

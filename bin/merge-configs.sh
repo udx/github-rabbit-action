@@ -42,8 +42,15 @@ main() {
     # Validate that files are in lifecycle directories (not root level)
     local valid_files=()
     for file in "${all_files[@]}"; do
+        local relative_file="${file#$SOURCE_DIR/}"
+        local lifecycle_root="${relative_file%%/*}"
         local file_dir=$(dirname "$file")
         local parent_dir=$(basename "$file_dir")
+
+        if [[ ",$ALL_LIFECYCLES_STR," != *",$lifecycle_root,"* ]]; then
+            dbg "Skipping file outside configured lifecycle roots: $file"
+            continue
+        fi
         
         # Skip root-level files - configs must be in lifecycle directories
         if [[ "$parent_dir" == "$(basename "$SOURCE_DIR")" ]]; then
