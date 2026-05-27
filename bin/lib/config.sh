@@ -54,15 +54,14 @@ export NO_ENVIRONMENT_VALUE="${INPUT_NO_ENVIRONMENT_VALUE:-none}"
 # Discovery configuration (can be overridden via GitHub Action inputs)
 export SKIP_DIRECTORIES="${INPUT_SKIP_DIRECTORIES:-node_modules,vendor}"
 
-# Lifecycle configuration (can be overridden via GitHub Action inputs)
+# Rabbit config layout (can be overridden via GitHub Action inputs)
 DEFAULT_LIFECYCLE_PRODUCTION="production"
 DEFAULT_LIFECYCLE_STAGING="staging"
 DEFAULT_LIFECYCLE_DEVELOPMENT="development"
 DEFAULT_SUBDIRECTORY_LIFECYCLES="$(_yaml_csv_or_default '.config.lifecycles | to_entries | map(select(.value.allow_subdirs == true) | .key)' 'production,development')"
 DEFAULT_STABLE_LIFECYCLES="$(_yaml_csv_or_default '.config.lifecycles | to_entries | map(select(.value.allow_subdirs != true) | .key)' 'staging')"
 DEFAULT_ALL_LIFECYCLES="production,staging,development"
-DEFAULT_PROTECTED_BRANCH_LIFECYCLE="$(_yaml_get_or_default '.config.lifecycles | to_entries | map(select(.value.protected_only == true) | .key) | .[0]' "$DEFAULT_LIFECYCLE_PRODUCTION")"
-DEFAULT_FALLBACK_LIFECYCLE="$(_yaml_get_or_default '.config.lifecycles | to_entries | map(select(.value.is_fallback == true) | .key) | .[0]' "$DEFAULT_LIFECYCLE_DEVELOPMENT")"
+DEFAULT_FALLBACK_LIFECYCLE="$DEFAULT_LIFECYCLE_DEVELOPMENT"
 DEFAULT_SUBDIR_PREFERRED_LIFECYCLE="${DEFAULT_FALLBACK_LIFECYCLE}"
 
 export LIFECYCLE_PRODUCTION="${INPUT_LIFECYCLE_PRODUCTION:-$DEFAULT_LIFECYCLE_PRODUCTION}"
@@ -77,7 +76,6 @@ export SUBDIRECTORY_LIFECYCLES="${INPUT_SUBDIRECTORY_LIFECYCLES:-$DEFAULT_SUBDIR
 export STABLE_LIFECYCLES_STR="${INPUT_STABLE_LIFECYCLES:-$DEFAULT_STABLE_LIFECYCLES}"
 export ALL_LIFECYCLES_STR="${INPUT_ALL_LIFECYCLES:-$DEFAULT_ALL_LIFECYCLES}"
 export SUBDIR_PREFERRED_LIFECYCLE="${INPUT_SUBDIR_PREFERRED_LIFECYCLE:-$DEFAULT_SUBDIR_PREFERRED_LIFECYCLE}"
-export PROTECTED_BRANCH_LIFECYCLE="${INPUT_PROTECTED_BRANCH_LIFECYCLE:-$DEFAULT_PROTECTED_BRANCH_LIFECYCLE}"
 export FALLBACK_LIFECYCLE="${INPUT_FALLBACK_LIFECYCLE:-$DEFAULT_FALLBACK_LIFECYCLE}"
 
 # Exported lifecycle metadata. INPUT_LIFECYCLE is supplied by udx/rabbit-lifecycle

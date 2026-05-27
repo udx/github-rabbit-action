@@ -64,22 +64,9 @@ _require_non_empty() {
     return 0
 }
 
-_require_not_equal() {
-    local left="$1"
-    local right="$2"
-    local message="$3"
-
-    if [[ "$left" == "$right" ]]; then
-        err "$message"
-        return 1
-    fi
-
-    return 0
-}
-
 _validation_check_policy() {
     if [[ ! -f "$LIFECYCLE_POLICY_FILE" ]]; then
-        err "Lifecycle policy file not found: $LIFECYCLE_POLICY_FILE"
+        err "Rabbit config layout file not found: $LIFECYCLE_POLICY_FILE"
         return 1
     fi
 
@@ -88,30 +75,22 @@ _validation_check_policy() {
         return 1
     fi
 
-    local kind version lifecycle_keys protected_count fallback_count protected_lifecycle fallback_lifecycle
+    local kind version lifecycle_keys
     mapfile -t policy_meta < <(_policy_eval '
       .kind,
       .version,
-      (.config.lifecycles | keys | join(",")),
-      (.config.lifecycles | to_entries | map(select(.value.protected_only == true)) | length),
-      (.config.lifecycles | to_entries | map(select(.value.is_fallback == true)) | length),
-      (.config.lifecycles | to_entries | map(select(.value.protected_only == true) | .key) | .[0]),
-      (.config.lifecycles | to_entries | map(select(.value.is_fallback == true) | .key) | .[0])
+      (.config.lifecycles | keys | join(","))
     ')
 
     kind="${policy_meta[0]:-}"
     version="${policy_meta[1]:-}"
     lifecycle_keys="${policy_meta[2]:-}"
-    protected_count="${policy_meta[3]:-0}"
-    fallback_count="${policy_meta[4]:-0}"
-    protected_lifecycle="${policy_meta[5]:-}"
-    fallback_lifecycle="${policy_meta[6]:-}"
 
-    if ! _require_equal "$kind" "lifecyclePolicy" "Lifecycle policy kind must be 'lifecyclePolicy', got '$kind'"; then
+    if ! _require_equal "$kind" "rabbitConfigLayout" "Rabbit config layout kind must be 'rabbitConfigLayout', got '$kind'"; then
         return 1
     fi
 
-    if ! _require_non_empty "$version" "Lifecycle policy must define a version"; then
+    if ! _require_non_empty "$version" "Rabbit config layout must define a version"; then
         return 1
     fi
 
@@ -119,21 +98,9 @@ _validation_check_policy() {
         return 1
     fi
 
-    if ! _require_equal "$protected_count" "1" "Lifecycle policy must enable exactly one protected_only lifecycle; got $protected_count"; then
-        return 1
-    fi
-
-    if ! _require_equal "$fallback_count" "1" "Lifecycle policy must enable exactly one is_fallback lifecycle; got $fallback_count"; then
-        return 1
-    fi
-
-    local fallback_allows_subdirs
-    fallback_allows_subdirs=$(_policy_eval ".config.lifecycles.$fallback_lifecycle.allow_subdirs == true")
-    if ! _require_true "$fallback_allows_subdirs" "Fallback lifecycle '$fallback_lifecycle' must allow subdirectories"; then
-        return 1
-    fi
-
-    if ! _require_not_equal "$protected_lifecycle" "$fallback_lifecycle" "Protected lifecycle and fallback lifecycle must be different"; then
+    local development_allows_subdirs
+    development_allows_subdirs=$(_policy_eval '.config.lifecycles.development.allow_subdirs == true')
+    if ! _require_true "$development_allows_subdirs" "Development config layout must allow subdirectories"; then
         return 1
     fi
 

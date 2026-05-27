@@ -16,7 +16,6 @@ source "$LIB_DIR/discovery.sh"
 # - STABLE_LIFECYCLES_STR, ALL_LIFECYCLES_STR (comma-separated)
 # - SUBDIRECTORY_LIFECYCLES (comma-separated)
 # - SUBDIR_PREFERRED_LIFECYCLE
-# - PROTECTED_BRANCH_LIFECYCLE
 # - FALLBACK_LIFECYCLE
 #
 # Lifecycle Rules (applied throughout the codebase):

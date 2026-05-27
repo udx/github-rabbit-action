@@ -1,15 +1,13 @@
-kind: lifecyclePolicy
+kind: rabbitConfigLayout
 version: udx.dev/rabbit-infra-config/v1
 
 config:
   lifecycles:
     production:
       allow_subdirs: true
-      protected_only: true
 
     staging:
       allow_subdirs: false
 
     development:
       allow_subdirs: true
-      is_fallback: true

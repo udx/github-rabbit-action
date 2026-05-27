@@ -6,7 +6,7 @@ generator:
   tool: dev.kit
   repo: https://github.com/udx/dev.kit
   version: 0.12.0
-  generated_at: 2026-05-27T14:31:15Z
+  generated_at: 2026-05-27T14:38:30Z
   sources:
     homepage: https://udx.dev/kit
     repository: https://github.com/udx/dev.kit
@@ -73,7 +73,7 @@ dependencies:
 
 manifests:
   - path: src/configs/lifecycle-policy.yaml
-    kind: lifecyclePolicy
+    kind: rabbitConfigLayout
     declared_as: udx.dev/rabbit-infra-config/v1
     source_repo: udx/rabbit-infra-config
     used_by:

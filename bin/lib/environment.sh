@@ -32,13 +32,13 @@ _should_include_file() {
     local file="$1"
     local best_dir="$2"
     local env_type="$3"
-    local is_fallback="$4"
+    local is_lifecycle_root="$4"
     
     # File must be in the selected directory
     [[ "$file" != "$best_dir"* ]] && return 1
     
-    # Fallback or stable lifecycles: only direct files
-    if [[ "$is_fallback" == "true" ]] || ! _lifecycle_allows_subdirectories "$env_type"; then
+    # Lifecycle roots and root-only lifecycles use direct files only.
+    if [[ "$is_lifecycle_root" == "true" ]] || ! _lifecycle_allows_subdirectories "$env_type"; then
         _is_direct_file "$file" "$best_dir" && return 0
         return 1
     fi

@@ -88,7 +88,7 @@ inputs:
     required: false
     default: ".rabbit"
   github_token:
-    description: "GitHub token for branch protection detection and PR comments"
+    description: "GitHub token passed to lifecycle resolution and used for PR comments"
     required: false
     default: ${{ github.token }}
 
@@ -171,7 +171,6 @@ runs:
         INPUT_LIFECYCLE: ${{ steps.resolve-lifecycle.outputs.lifecycle }}
         INPUT_IS_PROTECTED: ${{ steps.resolve-lifecycle.outputs.is_protected }}
         INPUT_RESOLUTION_REASON: ${{ steps.resolve-lifecycle.outputs.resolution_reason }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         INPUT_EXCLUDE: "**/merged*.yml,**/merged*.yaml"
         INPUT_RECURSIVE: "true"
         INPUT_FILE_PATTERNS: "*.yml,*.yaml"

@@ -479,7 +479,7 @@ The workflow dispatch inputs provide safe manual control:
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
 | `source_dir` | — | `.rabbit` | Config source directory |
-| `github_token` | — | `github.token` | GitHub token for lifecycle branch protection checks and PR comments |
+| `github_token` | — | `github.token` | GitHub token passed to lifecycle resolution and used for PR comments |
 
 ## Outputs
 
