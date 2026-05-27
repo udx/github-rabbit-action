@@ -209,6 +209,8 @@ Infrastructure configs live in `.rabbit/` directories organized by lifecycle:
 - Root-level files in the configured `source_dir` are ignored (must be in a lifecycle directory)
 - Only direct lifecycle roots under `source_dir` are eligible; use `source_dir: .rabbit/infra_configs` for nested config roots
 
+See [docs/configuration.md](docs/configuration.md) for the repo-owned Rabbit config layout and merge contract.
+
 ### Plan Mode
 
 | Trigger | Mode |
@@ -539,6 +541,10 @@ Notifications include environment, change counts, failure stage, and a link to t
 - **Set `source_dir` explicitly** when configs live below `.rabbit/infra_configs` or another nested root
 - **Schedule nightly runs** (`cron: "0 2 * * *"`) to detect infrastructure drift
 - **Keep `.rabbit/` configs small and focused** — one concern per file
+
+## Development
+
+The local validation contract is documented in [docs/validation.md](docs/validation.md). Run `make test` and `dev.kit repo` before updating a PR.
 
 ---
 

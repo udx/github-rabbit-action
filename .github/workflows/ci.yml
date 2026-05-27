@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - production
+      - lifecycle-action-integration
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate action contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned yq
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="v4.44.3"
+          install_dir="${RUNNER_TEMP}/rabbit-action-bin"
+          mkdir -p "$install_dir"
+          curl -fsSL "https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_amd64" -o "$install_dir/yq"
+          chmod +x "$install_dir/yq"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Run validation
+        shell: bash
+        run: make test
+
+      - name: Refresh repo context
+        shell: bash
+        run: npx -y @udx/dev-kit@0.12.0 repo
