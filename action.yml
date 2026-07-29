@@ -11,21 +11,6 @@ inputs:
   project_id:
     description: "Project identifier for Terraform state and resource operations"
     required: true
-  gcp_auth_provider:
-    description: "Optional GCP Workload Identity Federation provider; omit with gcp_service_account to use caller-managed credentials"
-    required: false
-  gcp_service_account:
-    description: "Optional GCP service account; omit with gcp_auth_provider to use caller-managed credentials"
-    required: false
-
-  # Auth
-  aws_role_arn:
-    description: "AWS IAM OIDC role ARN for Route53, CloudFront, WAF, ACM"
-    required: false
-  aws_region:
-    description: "AWS region"
-    required: false
-
   # Docker
   dockerhub_username:
     description: "Docker Hub username for pulling R2A image"
@@ -414,9 +399,12 @@ runs:
         R2A_VERSION: ${{ inputs.r2a_version }}
         MULTI_REPO: ${{ inputs.multi_repo }}
         LIFECYCLE_POLICY_PATH: ${{ steps.resolve-lifecycle.outputs.lifecycle_policy_path }}
-        AWS_ROLE_CONFIGURED: ${{ inputs.aws_role_arn != '' && inputs.aws_region != '' }}
       run: |
         config_items="$(printf '%s' "${DETECTED_CONFIGS:-none}" | sed "s/#{Environment}/$ENV_NAME/g" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sed '/^$/d')"
+        aws_credentials_available=false
+        if [ -n "${AWS_ACCESS_KEY_ID:-}" ]; then
+          aws_credentials_available=true
+        fi
 
         {
           echo "## Configuration Summary"
@@ -433,7 +421,7 @@ runs:
           echo "| Lifecycle Policy | \`${LIFECYCLE_POLICY_PATH:-bundled}\` |"
           echo "| Plan Only | \`${PLAN_ONLY:-true}\` |"
           echo "| Multi Repo | \`${MULTI_REPO:-false}\` |"
-          echo "| AWS Role Input | \`${AWS_ROLE_CONFIGURED}\` |"
+          echo "| AWS runner credentials | \`${aws_credentials_available}\` |"
           echo ""
           echo "### Detected Configs"
           echo ""
@@ -455,44 +443,7 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     # =========================================================================
-    # 11. Validate optional built-in GCP authentication
-    # =========================================================================
-    - name: Validate GCP authentication inputs
-      if: steps.safety.outputs.should_deploy == 'true'
-      shell: bash
-      env:
-        GCP_AUTH_PROVIDER: ${{ inputs.gcp_auth_provider }}
-        GCP_SERVICE_ACCOUNT: ${{ inputs.gcp_service_account }}
-      run: |
-        set -euo pipefail
-
-        if [[ -n "$GCP_AUTH_PROVIDER" && -z "$GCP_SERVICE_ACCOUNT" ]] || [[ -z "$GCP_AUTH_PROVIDER" && -n "$GCP_SERVICE_ACCOUNT" ]]; then
-          echo "::error title=GCP authentication inputs incomplete::Provide both gcp_auth_provider and gcp_service_account, or omit both and authenticate before this action."
-          exit 1
-        fi
-
-    # =========================================================================
-    # 12. Authenticate with Google Cloud when configured by the caller
-    # =========================================================================
-    - name: Authenticate with Google Cloud
-      if: steps.safety.outputs.should_deploy == 'true' && inputs.gcp_auth_provider != '' && inputs.gcp_service_account != ''
-      uses: google-github-actions/auth@v3
-      with:
-        workload_identity_provider: ${{ inputs.gcp_auth_provider }}
-        service_account: ${{ inputs.gcp_service_account }}
-
-    # =========================================================================
-    # 13. Configure AWS credentials (optional)
-    # =========================================================================
-    - name: Configure AWS credentials
-      if: steps.safety.outputs.should_deploy == 'true' && inputs.aws_role_arn != '' && inputs.aws_region != ''
-      uses: aws-actions/configure-aws-credentials@v6
-      with:
-        role-to-assume: ${{ inputs.aws_role_arn }}
-        aws-region: ${{ inputs.aws_region }}
-
-    # =========================================================================
-    # 14. Prepare artifacts directory
+    # 11. Prepare artifacts directory
     # =========================================================================
     - name: Prepare artifacts directory
       if: steps.safety.outputs.should_deploy == 'true'
@@ -502,7 +453,7 @@ runs:
         chmod -R 777 terraform/plans
 
     # =========================================================================
-    # 15. Resolve GCP credentials for a read-only Docker mount
+    # 12. Resolve caller-provided GCP credentials for a read-only Docker mount
     # =========================================================================
     - name: Resolve GCP credentials
       id: prepare-creds
@@ -513,8 +464,8 @@ runs:
 
         credentials_path="${GOOGLE_APPLICATION_CREDENTIALS:-}"
         if [[ -z "$credentials_path" ]]; then
-          echo "gcp_credentials_available=false" >> "$GITHUB_OUTPUT"
-          exit 0
+          echo "::error title=GCP credentials unavailable::Authenticate with Google Cloud before invoking github-rabbit-action."
+          exit 1
         fi
 
         if [[ ! -f "$credentials_path" ]]; then
@@ -526,7 +477,7 @@ runs:
         echo "credentials_path=$credentials_path" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 16. Docker login and pull R2A image
+    # 13. Docker login and pull R2A image
     # =========================================================================
     - name: Docker login and pull R2A image
       if: steps.safety.outputs.should_deploy == 'true'
@@ -549,7 +500,7 @@ runs:
         echo "✓ Image pulled successfully"
 
     # =========================================================================
-    # 17. Run Rabbit Automation Action (Terraform engine)
+    # 14. Run Rabbit Automation Action (Terraform engine)
     # =========================================================================
     - name: Run Rabbit Automation Action
       id: terraform
@@ -585,7 +536,7 @@ runs:
         IMAGE="usabilitydynamics/rabbit-automation-action:${R2A_VERSION}"
         ARTIFACTS_PATH="terraform/plans"
 
-        # Forward AWS credentials configured by the action or a preceding workflow step.
+        # Forward AWS credentials configured by the caller workflow.
         aws_env=()
         if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
           aws_env+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")

@@ -101,12 +101,17 @@ ROOT="$TEMP_DIR/workspace"
 SOURCE="$ROOT/.rabbit"
 INFRA_SOURCE="$ROOT/.rabbit/infra_configs"
 
-scenario "Action metadata supports compatible credential and state-backend configuration"
-assert_eq "$(yq -r '.inputs.gcp_auth_provider.required' "$PROJECT_ROOT/action.yml")" "false" "GCP provider input is optional"
-assert_eq "$(yq -r '.inputs.gcp_service_account.required' "$PROJECT_ROOT/action.yml")" "false" "GCP service account input is optional"
+scenario "Action requires caller-managed cloud credentials"
+assert_eq "$(yq -r '.inputs | has("gcp_auth_provider")' "$PROJECT_ROOT/action.yml")" "false" "GCP provider input is not accepted"
+assert_eq "$(yq -r '.inputs | has("gcp_service_account")' "$PROJECT_ROOT/action.yml")" "false" "GCP service account input is not accepted"
+assert_eq "$(yq -r '.inputs | has("aws_role_arn")' "$PROJECT_ROOT/action.yml")" "false" "AWS role input is not accepted"
+assert_eq "$(yq -r '.inputs | has("aws_region")' "$PROJECT_ROOT/action.yml")" "false" "AWS region input is not accepted"
 assert_eq "$(yq -r '.inputs.state_backend.required' "$PROJECT_ROOT/action.yml")" "false" "State backend input is optional"
 assert_eq "$(yq -r '.runs.steps[] | select(.name == "Upload terraform artifacts") | .uses' "$PROJECT_ROOT/action.yml")" "actions/upload-artifact@v6" "Artifact upload uses Node.js 24 action runtime"
 assert_eq "$(yq -r '.runs.steps[] | select(.name == "Upload terraform plans") | .uses' "$PROJECT_ROOT/action.yml")" "actions/upload-artifact@v6" "Plan upload uses Node.js 24 action runtime"
+assert_eq "$(yq -r '[.runs.steps[] | select(.uses == "google-github-actions/auth@v3" or .uses == "aws-actions/configure-aws-credentials@v6")] | length' "$PROJECT_ROOT/action.yml")" "0" "Action does not configure cloud credentials"
+assert_eq "$(grep -c 'Authenticate with Google Cloud before invoking github-rabbit-action' "$PROJECT_ROOT/action.yml")" "1" "Action requires caller-provided GCP credentials"
+assert_eq "$(grep -c 'AWS credentials configured by the caller workflow' "$PROJECT_ROOT/action.yml")" "1" "Action forwards caller AWS credentials"
 
 write_yaml "$SOURCE/production/10-base.yaml" 'services:
   - module: test-module

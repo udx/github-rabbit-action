@@ -52,13 +52,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_AUTH_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: vars.AWS_REGION != ''
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
       - uses: udx/github-rabbit-action@v1
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
-          gcp_auth_provider: ${{ vars.GCP_AUTH_PROVIDER }}
-          gcp_service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-          aws_region: ${{ vars.AWS_REGION }}
-          aws_role_arn: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           slack_webhook: ${{ secrets.SLACK_WEBHOOK_ROUTINE }}
           dockerhub_username: ${{ vars.DOCKERHUB_USER_LOGIN }}
           dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN_PULL_R2A }}
@@ -152,20 +159,13 @@ services:
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   4. Cloud Auth            │
-         │   GCP Workload Identity    │
-         │   AWS OIDC (optional)      │
+         │   4. Terraform Engine      │
+         │   Caller credentials       │
+         │   passed into R2A          │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   5. Terraform Engine      │
-         │   Docker: r2a container    │
-         │   Per-service init/plan/   │
-         │   apply in deploy order    │
-         └─────────────┬──────────────┘
-                       │
-         ┌─────────────▼──────────────┐
-         │   6. Reporting             │
+         │   5. Reporting             │
          │   Plan summary table       │
          │   PR comment               │
          │   GitHub step summary      │
@@ -459,7 +459,7 @@ The workflow dispatch inputs provide safe manual control:
 
 ## Authentication and state ownership
 
-Existing workflows can keep passing `gcp_auth_provider`, `gcp_service_account`, and optional AWS role inputs to this action. To let the workflow own cloud authentication instead, omit both GCP inputs and run the appropriate provider authentication step first. The action forwards the resulting GCP credential file and any configured AWS environment credentials to its container without copying the GCP credential into the workspace.
+The caller workflow owns cloud authentication. Authenticate with Google Cloud before invoking the action; the action mounts the resulting `GOOGLE_APPLICATION_CREDENTIALS` file read-only into the R2A container and never copies it into the workspace. Configure AWS credentials in the caller when the configuration uses AWS; the action forwards the resulting AWS session variables to R2A.
 
 The optional state-backend inputs are passed through to the IaC engine. Omit them to retain its existing GCS default; provide the backend type, configuration, and state-path key only when the selected backend requires an override.
 
@@ -470,10 +470,6 @@ The optional state-backend inputs are passed through to the IaC engine. Omit the
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
 | `project_id` | ✅ | — | Project identifier for state and resource operations |
-| `gcp_auth_provider` | — | — | GCP Workload Identity Provider; pair with `gcp_service_account`, or omit both after authenticating in the workflow |
-| `gcp_service_account` | — | — | GCP service account; pair with `gcp_auth_provider`, or omit both after authenticating in the workflow |
-| `aws_role_arn` | — | — | AWS IAM OIDC role ARN |
-| `aws_region` | — | — | AWS region |
 | `dockerhub_username` | — | — | Docker Hub username |
 | `dockerhub_token` | — | — | Docker Hub pull token |
 | `dockerhub_helm_token` | — | — | Docker Hub Helm OCI token |
