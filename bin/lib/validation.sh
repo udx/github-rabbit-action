@@ -75,16 +75,24 @@ _validation_check_policy() {
         return 1
     fi
 
-    local kind version lifecycle_keys
+    local kind version lifecycle_keys protected_count fallback_count protected_lifecycle fallback_lifecycle
     mapfile -t policy_meta < <(_policy_eval '
       .kind,
       .version,
-      (.config.lifecycles | keys | join(","))
+      (.config.lifecycles | keys | join(",")),
+      (.config.lifecycles | to_entries | map(select(.value.protected_only == true)) | length),
+      (.config.lifecycles | to_entries | map(select(.value.is_fallback == true)) | length),
+      (.config.lifecycles | to_entries | map(select(.value.protected_only == true) | .key) | .[0]),
+      (.config.lifecycles | to_entries | map(select(.value.is_fallback == true) | .key) | .[0])
     ')
 
     kind="${policy_meta[0]:-}"
     version="${policy_meta[1]:-}"
     lifecycle_keys="${policy_meta[2]:-}"
+    protected_count="${policy_meta[3]:-0}"
+    fallback_count="${policy_meta[4]:-0}"
+    protected_lifecycle="${policy_meta[5]:-}"
+    fallback_lifecycle="${policy_meta[6]:-}"
 
     if ! _require_equal "$kind" "rabbitConfigLayout" "Rabbit config layout kind must be 'rabbitConfigLayout', got '$kind'"; then
         return 1
@@ -98,9 +106,22 @@ _validation_check_policy() {
         return 1
     fi
 
-    local development_allows_subdirs
-    development_allows_subdirs=$(_policy_eval '.config.lifecycles.development.allow_subdirs == true')
-    if ! _require_true "$development_allows_subdirs" "Development config layout must allow subdirectories"; then
+    if ! _require_equal "$protected_count" "1" "Lifecycle policy must enable exactly one protected_only lifecycle; got $protected_count"; then
+        return 1
+    fi
+
+    if ! _require_equal "$fallback_count" "1" "Lifecycle policy must enable exactly one is_fallback lifecycle; got $fallback_count"; then
+        return 1
+    fi
+
+    local fallback_allows_subdirs
+    fallback_allows_subdirs=$(_policy_eval ".config.lifecycles.$fallback_lifecycle.allow_subdirs == true")
+    if ! _require_true "$fallback_allows_subdirs" "Fallback lifecycle '$fallback_lifecycle' must allow subdirectories"; then
+        return 1
+    fi
+
+    if [[ "$protected_lifecycle" == "$fallback_lifecycle" ]]; then
+        err "Protected lifecycle and fallback lifecycle must be different"
         return 1
     fi
 

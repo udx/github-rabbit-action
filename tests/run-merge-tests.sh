@@ -30,14 +30,38 @@ run_merge() {
   local env_name="$2"
   local lifecycle="$3"
   local output_file="$4"
+  local policy_path="${5:-}"
 
   : > "$output_file"
+  GITHUB_WORKSPACE="$ROOT" \
   INPUT_SOURCE_DIR="$source_dir" \
   INPUT_ENV_NAME="$env_name" \
   INPUT_LIFECYCLE="$lifecycle" \
+  INPUT_LIFECYCLE_POLICY_PATH="$policy_path" \
   INPUT_IS_PROTECTED="false" \
   GITHUB_OUTPUT="$output_file" \
   "$PROJECT_ROOT/bin/merge-configs.sh" >/dev/null
+}
+
+run_resolve() {
+  local source_dir="$1"
+  local env_name="$2"
+  local output_file="$3"
+  local policy_path="${4:-}"
+  local mock_bin="${5:-}"
+  local github_token="${6:-}"
+  local github_repository="${7:-}"
+
+  : > "$output_file"
+  PATH="${mock_bin:+$mock_bin:}$PATH" \
+  GITHUB_WORKSPACE="$ROOT" \
+  INPUT_SOURCE_DIR="$source_dir" \
+  INPUT_ENV_NAME="$env_name" \
+  INPUT_LIFECYCLE_POLICY_PATH="$policy_path" \
+  GITHUB_TOKEN="$github_token" \
+  GITHUB_REPOSITORY="$github_repository" \
+  GITHUB_OUTPUT="$output_file" \
+  "$PROJECT_ROOT/bin/resolve-lifecycle.sh" >/dev/null
 }
 
 assert_eq() {
@@ -121,6 +145,23 @@ write_yaml "$INFRA_SOURCE/production/main/20-override.yaml" 'services:
     id: infra
     replicas: 5'
 
+write_yaml "$SOURCE/lifecycle-policy.yaml" 'kind: rabbitConfigLayout
+version: udx.dev/rabbit-infra-config/v1
+config:
+  lifecycles:
+    production:
+      allow_subdirs: true
+      protected_only: true
+      is_fallback: false
+    staging:
+      allow_subdirs: false
+      protected_only: false
+      is_fallback: false
+    development:
+      allow_subdirs: true
+      protected_only: false
+      is_fallback: true'
+
 echo "Rabbit config merge smoke tests"
 echo "==============================="
 
@@ -158,6 +199,36 @@ run_merge "$INFRA_SOURCE" "main" "production" "$infra_out"
 infra_config="$(read_output "$infra_out" merged_config)"
 assert_file_exists "$infra_config" "Merged infra_configs config exists"
 assert_eq "$(yq -r '.services[0].replicas' "$infra_config")" "5" "infra_configs override wins"
+
+scenario "Scenario: in-repo lifecycle resolver honors explicit and subdirectory rules"
+explicit_out="$TEMP_DIR/explicit.out"
+run_resolve "$SOURCE" "staging" "$explicit_out"
+assert_eq "$(read_output "$explicit_out" lifecycle)" "staging" "Explicit lifecycle resolves in-repo"
+assert_eq "$(read_output "$explicit_out" resolution_reason)" "explicit_lifecycle" "Explicit lifecycle reason is recorded"
+
+subdir_out="$TEMP_DIR/subdir.out"
+run_resolve "$SOURCE" "dev-alice" "$subdir_out"
+assert_eq "$(read_output "$subdir_out" lifecycle)" "development" "Development subdirectory resolves in-repo"
+assert_eq "$(read_output "$subdir_out" resolution_reason)" "environment_subdirectory" "Subdirectory reason is recorded"
+
+scenario "Scenario: resolver uses a caller lifecycle policy for both policy metadata and merge"
+policy_out="$TEMP_DIR/policy.out"
+run_resolve "$SOURCE" "dev-alice" "$policy_out" ".rabbit/lifecycle-policy.yaml"
+assert_eq "$(read_output "$policy_out" lifecycle_policy_path)" "$SOURCE/lifecycle-policy.yaml" "Caller policy path is reported"
+run_merge "$SOURCE" "dev-alice" "development" "$TEMP_DIR/policy-merge.out" ".rabbit/lifecycle-policy.yaml"
+assert_file_exists "$(read_output "$TEMP_DIR/policy-merge.out" merged_config)" "Merge remains compatible with caller policy"
+
+scenario "Scenario: protected branch resolves to production"
+mock_bin="$TEMP_DIR/mock-bin"
+mkdir -p "$mock_bin"
+write_yaml "$mock_bin/curl" "#!/usr/bin/env bash
+printf '%s\\n%s\\n' '{\"protected\":true}' '200'"
+chmod +x "$mock_bin/curl"
+protected_out="$TEMP_DIR/protected.out"
+run_resolve "$SOURCE" "main" "$protected_out" "" "$mock_bin" "test-token" "udx/github-rabbit-action"
+assert_eq "$(read_output "$protected_out" lifecycle)" "production" "Protected branch resolves to production"
+assert_eq "$(read_output "$protected_out" is_protected)" "true" "Protected status is recorded"
+assert_eq "$(read_output "$protected_out" resolution_reason)" "protected_branch" "Protected branch reason is recorded"
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

@@ -87,6 +87,9 @@ inputs:
     description: "Source directory for .rabbit configs"
     required: false
     default: ".rabbit"
+  lifecycle_policy_path:
+    description: "Optional caller-repository lifecycle policy path; defaults to the bundled policy"
+    required: false
   github_token:
     description: "GitHub token passed to lifecycle resolution and used for PR comments"
     required: false
@@ -105,6 +108,9 @@ outputs:
   resolution_reason:
     description: "Lifecycle rule that selected the lifecycle"
     value: ${{ steps.resolve-lifecycle.outputs.resolution_reason }}
+  lifecycle_policy_path:
+    description: "Lifecycle policy path used for resolution and config merging"
+    value: ${{ steps.resolve-lifecycle.outputs.lifecycle_policy_path }}
   plan_only:
     description: "Whether the run was plan-only"
     value: ${{ steps.plan-mode.outputs.plan_only }}
@@ -131,18 +137,7 @@ runs:
   using: "composite"
   steps:
     # =========================================================================
-    # 1. Resolve Rabbit lifecycle
-    # =========================================================================
-    - name: Resolve Rabbit lifecycle
-      id: resolve-lifecycle
-      uses: udx/rabbit-lifecycle@lifecycle-action-contract
-      with:
-        source_dir: ${{ inputs.source_dir }}
-        env_name: ${{ inputs.environment || (github.event_name == 'pull_request' && github.base_ref) || (github.event_name == 'delete' && github.event.ref) || github.ref_name }}
-        github_token: ${{ inputs.github_token }}
-
-    # =========================================================================
-    # 2. Install pinned yq
+    # 1. Install pinned yq
     # =========================================================================
     - name: Install pinned yq
       shell: bash
@@ -160,6 +155,23 @@ runs:
         yq --version
 
     # =========================================================================
+    # 2. Resolve Rabbit lifecycle
+    # =========================================================================
+    - name: Resolve Rabbit lifecycle
+      id: resolve-lifecycle
+      shell: bash
+      env:
+        INPUT_SOURCE_DIR: ${{ inputs.source_dir }}
+        INPUT_LIFECYCLE_POLICY_PATH: ${{ inputs.lifecycle_policy_path }}
+        INPUT_ENV_NAME: ${{ inputs.environment || (github.event_name == 'pull_request' && github.base_ref) || (github.event_name == 'delete' && github.event.ref) || github.ref_name }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        ENABLE_ANNOTATIONS: "false"
+        INPUT_DEBUG: "false"
+      run: |
+        set -euo pipefail
+        bash "${GITHUB_ACTION_PATH}/bin/resolve-lifecycle.sh"
+
+    # =========================================================================
     # 3. Merge infrastructure configs
     # =========================================================================
     - name: Merge infrastructure configs
@@ -167,6 +179,7 @@ runs:
       shell: bash
       env:
         INPUT_SOURCE_DIR: ${{ inputs.source_dir }}
+        INPUT_LIFECYCLE_POLICY_PATH: ${{ inputs.lifecycle_policy_path }}
         INPUT_ENV_NAME: ${{ steps.resolve-lifecycle.outputs.environment }}
         INPUT_LIFECYCLE: ${{ steps.resolve-lifecycle.outputs.lifecycle }}
         INPUT_IS_PROTECTED: ${{ steps.resolve-lifecycle.outputs.is_protected }}
@@ -285,6 +298,7 @@ runs:
       shell: bash
       env:
         LIFECYCLE: ${{ steps.resolve-env.outputs.lifecycle }}
+        LIFECYCLE_POLICY_PATH: ${{ steps.resolve-lifecycle.outputs.lifecycle_policy_path }}
         PLAN_ONLY: ${{ steps.plan-mode.outputs.plan_only }}
         TERRAFORM_ACTION: ${{ steps.terraform-action.outputs.terraform_action }}
         EVENT_NAME: ${{ github.event_name }}
@@ -402,6 +416,7 @@ runs:
           echo "| Field | Value |"
           echo "| --- | --- |"
           echo "| Lifecycle | \`${LIFECYCLE:-unknown}\` |"
+          echo "| Lifecycle Policy | \`${LIFECYCLE_POLICY_PATH:-bundled}\` |"
           echo "| Plan Only | \`${PLAN_ONLY:-true}\` |"
           echo "| Multi Repo | \`${MULTI_REPO:-false}\` |"
           echo "| AWS Enabled | \`${HAS_AWS}\` |"

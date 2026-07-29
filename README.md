@@ -134,8 +134,8 @@ services:
                        │
         ┌─────────────▼──────────────┐
         │   1. Resolve Lifecycle     │
-        │   Branch/env policy via    │
-        │   udx/rabbit-lifecycle     │
+        │   In-repo branch/env       │
+        │   policy and protection    │
         └─────────────┬──────────────┘
                       │
         ┌─────────────▼──────────────┐
@@ -145,27 +145,27 @@ services:
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   2. Safety Checks         │
+         │   3. Safety Checks         │
          │   Block production manual  │
          │   Block production destroy │
          │   Auto plan-only for PRs   │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   3. Cloud Auth            │
+         │   4. Cloud Auth            │
          │   GCP Workload Identity    │
          │   AWS OIDC (optional)      │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   4. Terraform Engine      │
+         │   5. Terraform Engine      │
          │   Docker: r2a container    │
          │   Per-service init/plan/   │
          │   apply in deploy order    │
          └─────────────┬──────────────┘
                        │
          ┌─────────────▼──────────────┐
-         │   5. Reporting             │
+         │   6. Reporting             │
          │   Plan summary table       │
          │   PR comment               │
          │   GitHub step summary      │
@@ -175,7 +175,7 @@ services:
 
 ### Environment Detection
 
-The environment is automatically resolved from the workflow event, then passed to `udx/rabbit-lifecycle` for lifecycle policy resolution:
+The environment is automatically resolved from the workflow event, then resolved against this action's lifecycle policy:
 
 | Trigger | Environment Source |
 | --- | --- |
@@ -481,6 +481,7 @@ The workflow dispatch inputs provide safe manual control:
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
 | `source_dir` | — | `.rabbit` | Config source directory |
+| `lifecycle_policy_path` | — | bundled policy | Optional caller-repository lifecycle policy shared by resolution and config merging |
 | `github_token` | — | `github.token` | GitHub token passed to lifecycle resolution and used for PR comments |
 
 ## Outputs
@@ -491,6 +492,7 @@ The workflow dispatch inputs provide safe manual control:
 | `lifecycle` | Resolved lifecycle (production/staging/development) |
 | `is_protected` | Whether GitHub reported the environment branch as protected |
 | `resolution_reason` | Lifecycle rule that selected the lifecycle |
+| `lifecycle_policy_path` | Lifecycle policy used for resolution and config merging |
 | `plan_only` | Whether run was plan-only |
 | `terraform_action` | Action executed (apply/destroy/skip) |
 | `has_changes` | Whether Terraform detected changes |

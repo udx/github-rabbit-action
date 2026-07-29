@@ -6,7 +6,9 @@ test: validate-shell validate-action validate-workflow
 validate-shell:
 	bash -n \
 		bin/merge-configs.sh \
+		bin/resolve-lifecycle.sh \
 		bin/lib/config.sh \
+		bin/lib/github.sh \
 		bin/lib/lifecycle.sh \
 		bin/lib/validation.sh \
 		bin/lib/environment.sh \

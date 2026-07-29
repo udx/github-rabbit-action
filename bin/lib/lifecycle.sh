@@ -20,8 +20,8 @@ source "$LIB_DIR/discovery.sh"
 #
 # Lifecycle Rules (applied throughout the codebase):
 # - Only configured subdirectory lifecycles support lifecycle/<env>/ smart merge
-# - Pre-resolved lifecycle metadata comes from udx/rabbit-lifecycle in the action path
-# - Local fallback does not inspect GitHub branch protection
+# - The composite action resolves lifecycle metadata before config merging
+# - Local direct script runs retain a simple fallback without GitHub metadata
 
 # Build lifecycle arrays from environment variables
 IFS=',' read -ra STABLE_LIFECYCLES <<< "${STABLE_LIFECYCLES_STR}"
@@ -99,8 +99,8 @@ _find_env_directory() {
     echo "$result"
 }
 
-# PRIVATE: Minimal local fallback for direct script usage.
-# The composite action passes INPUT_LIFECYCLE from udx/rabbit-lifecycle.
+# PRIVATE: Minimal fallback for direct script usage when no lifecycle metadata
+# is supplied. The composite action resolves lifecycle before config merging.
 _determine_lifecycle_for_env() {
     local env_name="$1"
     shift
@@ -125,6 +125,36 @@ _determine_lifecycle_for_env() {
 
     dbg "No pre-resolved lifecycle for '$env_name'; using local fallback lifecycle '$FALLBACK_LIFECYCLE'" >&2
     echo "$FALLBACK_LIFECYCLE"
+}
+
+# PUBLIC: Resolve a lifecycle and preserve the rule that selected it.
+# Usage: lifecycle_resolve "environment" "is_protected" "directories..."
+lifecycle_resolve() {
+    local env_name="$1"
+    local is_protected="$2"
+    shift 2
+    local unique_dirs=("$@")
+    local lifecycle
+
+    for lifecycle in "${ALL_LIFECYCLES[@]}"; do
+        if [[ "$env_name" == "$lifecycle" ]]; then
+            echo "$lifecycle|explicit_lifecycle"
+            return 0
+        fi
+    done
+
+    if _lifecycle_allows_subdirectories "$SUBDIR_PREFERRED_LIFECYCLE" && \
+       discovery_find_dir_matching "*/$SUBDIR_PREFERRED_LIFECYCLE/$env_name" "${unique_dirs[@]}" >/dev/null; then
+        echo "$SUBDIR_PREFERRED_LIFECYCLE|environment_subdirectory"
+        return 0
+    fi
+
+    if [[ "$is_protected" == "true" ]]; then
+        echo "$PROTECTED_BRANCH_LIFECYCLE|protected_branch"
+        return 0
+    fi
+
+    echo "$FALLBACK_LIFECYCLE|fallback"
 }
 
 # PUBLIC: Get lifecycle and directory info for environment

@@ -5,8 +5,8 @@ version: udx.dev/dev.kit/v1
 generator:
   tool: dev.kit
   repo: https://github.com/udx/dev.kit
-  version: 0.12.0
-  generated_at: 2026-05-27T14:47:01Z
+  version: 0.20.1
+  generated_at: 2026-07-29T14:24:32Z
   sources:
     homepage: https://udx.dev/kit
     repository: https://github.com/udx/dev.kit
@@ -50,9 +50,8 @@ commands:
 dependencies:
   - repo: udx/rabbit-infra-config
     kind: manifest contract (v1)
-    resolved: true
+    resolved: false
     declared_as: udx.dev/rabbit-infra-config/v1
-    archetype: Composite action for determine infra config files and merge them.
     used_by:
       - src/configs/lifecycle-policy.yaml
 
