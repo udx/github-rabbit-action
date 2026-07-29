@@ -9,14 +9,14 @@ branding:
 inputs:
   # Required
   project_id:
-    description: "GCP project ID for Terraform state and resource operations"
+    description: "Project identifier for Terraform state and resource operations"
     required: true
   gcp_auth_provider:
-    description: "GCP Workload Identity Federation provider resource name"
-    required: true
+    description: "Optional GCP Workload Identity Federation provider; omit with gcp_service_account to use caller-managed credentials"
+    required: false
   gcp_service_account:
-    description: "GCP service account email for Workload Identity"
-    required: true
+    description: "Optional GCP service account; omit with gcp_auth_provider to use caller-managed credentials"
+    required: false
 
   # Auth
   aws_role_arn:
@@ -80,6 +80,17 @@ inputs:
   # Notifications
   slack_webhook:
     description: "Slack incoming webhook URL for deployment notifications"
+    required: false
+
+  # State backend
+  state_backend:
+    description: "Optional state backend override passed to the IaC engine (for example s3, azurerm, http, or consul); omit to use the container default (GCS)"
+    required: false
+  state_backend_config:
+    description: "Optional backend configuration as key=value lines"
+    required: false
+  state_prefix_key:
+    description: "Optional backend configuration key for the state path (for example prefix or key)"
     required: false
 
   # Config
@@ -403,7 +414,7 @@ runs:
         R2A_VERSION: ${{ inputs.r2a_version }}
         MULTI_REPO: ${{ inputs.multi_repo }}
         LIFECYCLE_POLICY_PATH: ${{ steps.resolve-lifecycle.outputs.lifecycle_policy_path }}
-        HAS_AWS: ${{ inputs.aws_role_arn != '' && inputs.aws_region != '' }}
+        AWS_ROLE_CONFIGURED: ${{ inputs.aws_role_arn != '' && inputs.aws_region != '' }}
       run: |
         config_items="$(printf '%s' "${DETECTED_CONFIGS:-none}" | sed "s/#{Environment}/$ENV_NAME/g" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sed '/^$/d')"
 
@@ -422,7 +433,7 @@ runs:
           echo "| Lifecycle Policy | \`${LIFECYCLE_POLICY_PATH:-bundled}\` |"
           echo "| Plan Only | \`${PLAN_ONLY:-true}\` |"
           echo "| Multi Repo | \`${MULTI_REPO:-false}\` |"
-          echo "| AWS Enabled | \`${HAS_AWS}\` |"
+          echo "| AWS Role Input | \`${AWS_ROLE_CONFIGURED}\` |"
           echo ""
           echo "### Detected Configs"
           echo ""
@@ -444,18 +455,34 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     # =========================================================================
-    # 11. Authenticate with Google Cloud
+    # 11. Validate optional built-in GCP authentication
+    # =========================================================================
+    - name: Validate GCP authentication inputs
+      if: steps.safety.outputs.should_deploy == 'true'
+      shell: bash
+      env:
+        GCP_AUTH_PROVIDER: ${{ inputs.gcp_auth_provider }}
+        GCP_SERVICE_ACCOUNT: ${{ inputs.gcp_service_account }}
+      run: |
+        set -euo pipefail
+
+        if [[ -n "$GCP_AUTH_PROVIDER" && -z "$GCP_SERVICE_ACCOUNT" ]] || [[ -z "$GCP_AUTH_PROVIDER" && -n "$GCP_SERVICE_ACCOUNT" ]]; then
+          echo "::error title=GCP authentication inputs incomplete::Provide both gcp_auth_provider and gcp_service_account, or omit both and authenticate before this action."
+          exit 1
+        fi
+
+    # =========================================================================
+    # 12. Authenticate with Google Cloud when configured by the caller
     # =========================================================================
     - name: Authenticate with Google Cloud
-      id: gcp-auth
-      if: steps.safety.outputs.should_deploy == 'true'
+      if: steps.safety.outputs.should_deploy == 'true' && inputs.gcp_auth_provider != '' && inputs.gcp_service_account != ''
       uses: google-github-actions/auth@v3
       with:
         workload_identity_provider: ${{ inputs.gcp_auth_provider }}
         service_account: ${{ inputs.gcp_service_account }}
 
     # =========================================================================
-    # 12. Configure AWS credentials (optional)
+    # 13. Configure AWS credentials (optional)
     # =========================================================================
     - name: Configure AWS credentials
       if: steps.safety.outputs.should_deploy == 'true' && inputs.aws_role_arn != '' && inputs.aws_region != ''
@@ -465,7 +492,7 @@ runs:
         aws-region: ${{ inputs.aws_region }}
 
     # =========================================================================
-    # 13. Prepare artifacts directory
+    # 14. Prepare artifacts directory
     # =========================================================================
     - name: Prepare artifacts directory
       if: steps.safety.outputs.should_deploy == 'true'
@@ -475,22 +502,31 @@ runs:
         chmod -R 777 terraform/plans
 
     # =========================================================================
-    # 14. Prepare GCP credentials for Docker volume mount
+    # 15. Resolve GCP credentials for a read-only Docker mount
     # =========================================================================
-    - name: Prepare Workload Identity credentials
+    - name: Resolve GCP credentials
       id: prepare-creds
       if: steps.safety.outputs.should_deploy == 'true'
       shell: bash
-      env:
-        CRED_FILE_PATH: ${{ steps.gcp-auth.outputs.credentials_file_path }}
       run: |
         set -euo pipefail
-        cp "$CRED_FILE_PATH" gcp-credentials.json
-        chmod 644 gcp-credentials.json
-        echo "credentials_path=$(pwd)/gcp-credentials.json" >> "$GITHUB_OUTPUT"
+
+        credentials_path="${GOOGLE_APPLICATION_CREDENTIALS:-}"
+        if [[ -z "$credentials_path" ]]; then
+          echo "gcp_credentials_available=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [[ ! -f "$credentials_path" ]]; then
+          echo "::error title=GCP credentials unavailable::GOOGLE_APPLICATION_CREDENTIALS does not point to a readable file."
+          exit 1
+        fi
+
+        echo "gcp_credentials_available=true" >> "$GITHUB_OUTPUT"
+        echo "credentials_path=$credentials_path" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 15. Docker login and pull R2A image
+    # 16. Docker login and pull R2A image
     # =========================================================================
     - name: Docker login and pull R2A image
       if: steps.safety.outputs.should_deploy == 'true'
@@ -513,7 +549,7 @@ runs:
         echo "✓ Image pulled successfully"
 
     # =========================================================================
-    # 16. Run Rabbit Automation Action (Terraform engine)
+    # 17. Run Rabbit Automation Action (Terraform engine)
     # =========================================================================
     - name: Run Rabbit Automation Action
       id: terraform
@@ -537,6 +573,11 @@ runs:
         DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
         DOCKERHUB_TOKEN: ${{ inputs.dockerhub_helm_token || inputs.dockerhub_token }}
         SHARED_PROJECT: ${{ inputs.shared_project }}
+        STATE_BACKEND: ${{ inputs.state_backend }}
+        STATE_BACKEND_CONFIG: ${{ inputs.state_backend_config }}
+        STATE_PREFIX_KEY: ${{ inputs.state_prefix_key }}
+        GCP_CREDENTIALS_AVAILABLE: ${{ steps.prepare-creds.outputs.gcp_credentials_available }}
+        GCP_CREDENTIALS_PATH: ${{ steps.prepare-creds.outputs.credentials_path }}
         REPO_OWNER: ${{ github.repository_owner }}
         REPO_NAME: ${{ github.event.repository.name }}
       run: |
@@ -544,18 +585,22 @@ runs:
         IMAGE="usabilitydynamics/rabbit-automation-action:${R2A_VERSION}"
         ARTIFACTS_PATH="terraform/plans"
 
-        # Build AWS env vars (may be empty if AWS not configured)
+        # Forward AWS credentials configured by the action or a preceding workflow step.
         aws_env=()
         if [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; then
           aws_env+=(-e "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
-          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
-          aws_env+=(-e "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}")
+          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}")
+          aws_env+=(-e "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}")
           aws_env+=(-e "AWS_REGION=${AWS_REGION:-}")
-        else
-          aws_env+=(-e "AWS_ACCESS_KEY_ID=")
-          aws_env+=(-e "AWS_SECRET_ACCESS_KEY=")
-          aws_env+=(-e "AWS_SESSION_TOKEN=")
-          aws_env+=(-e "AWS_REGION=")
+        fi
+
+        gcp_mount=()
+        if [[ "$GCP_CREDENTIALS_AVAILABLE" == "true" ]]; then
+          if [[ ! -f "$GCP_CREDENTIALS_PATH" ]]; then
+            echo "::error title=GCP credentials unavailable::Resolved credentials file is no longer readable."
+            exit 1
+          fi
+          gcp_mount=(-v "$GCP_CREDENTIALS_PATH:/tmp/gcp-credentials.json:ro" -e "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-credentials.json")
         fi
 
         echo "🐰 Running Rabbit Automation Action..."
@@ -580,7 +625,10 @@ runs:
           -e "DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-}" \
           -e "DOCKERHUB_TOKEN=${DOCKERHUB_TOKEN:-}" \
           -e "SHARED_PROJECT=${SHARED_PROJECT:-}" \
-          -e "GOOGLE_APPLICATION_CREDENTIALS=/github/workspace/gcp-credentials.json" \
+          -e "STATE_BACKEND=${STATE_BACKEND:-}" \
+          -e "STATE_BACKEND_CONFIG=${STATE_BACKEND_CONFIG:-}" \
+          -e "STATE_PREFIX_KEY=${STATE_PREFIX_KEY:-}" \
+          ${gcp_mount[@]+"${gcp_mount[@]}"} \
           "${aws_env[@]}" \
           "$IMAGE" \
           /usr/local/bin/entrypoint.sh
@@ -607,19 +655,19 @@ runs:
         echo "aws_cloudfront_distribution_id=${cloudfront_distribution_id}" >> "$GITHUB_OUTPUT"
 
     # =========================================================================
-    # 17. Upload terraform artifacts
+    # 18. Upload terraform artifacts
     # =========================================================================
     - name: Upload terraform artifacts
       if: steps.safety.outputs.should_deploy == 'true'
       continue-on-error: true
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: terraform-artifacts-${{ steps.resolve-env.outputs.environment }}
         path: terraform/plans
         if-no-files-found: warn
 
     # =========================================================================
-    # 18. Render plan summary
+    # 19. Render plan summary
     # =========================================================================
     - name: Render plan summary
       id: plan-summary
@@ -668,7 +716,7 @@ runs:
         bash "${GITHUB_ACTION_PATH}/bin/render-plan-summary.sh" "$summary_file" "$ARTIFACTS_PATH/plan-summary.md"
 
     # =========================================================================
-    # 19. Write deployment summary
+    # 20. Write deployment summary
     # =========================================================================
     - name: Write deployment summary
       if: always() && steps.safety.outputs.should_deploy == 'true'
@@ -712,7 +760,7 @@ runs:
         fi
 
     # =========================================================================
-    # 20. Post PR comment with plan summary
+    # 21. Post PR comment with plan summary
     # =========================================================================
     - name: Post PR comment with plan summary
       if: github.event_name == 'pull_request' && steps.plan-summary.outputs.has_changes == 'true'
@@ -773,19 +821,19 @@ runs:
           }
 
     # =========================================================================
-    # 21. Upload terraform plan files
+    # 22. Upload terraform plan files
     # =========================================================================
     - name: Upload terraform plans
       if: steps.plan-summary.outputs.has_changes == 'true'
       continue-on-error: true
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: terraform-plans-${{ steps.resolve-env.outputs.environment }}
         path: terraform/plans/*.tfplan
         if-no-files-found: ignore
 
     # =========================================================================
-    # 22. Send Slack notification
+    # 23. Send Slack notification
     # =========================================================================
     - name: Send Slack notification
       if: always() && inputs.slack_webhook != '' && (steps.plan-summary.outputs.has_changes == 'true' || steps.terraform.outcome == 'failure' || steps.safety.outcome == 'failure')

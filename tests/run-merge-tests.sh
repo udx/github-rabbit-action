@@ -101,6 +101,13 @@ ROOT="$TEMP_DIR/workspace"
 SOURCE="$ROOT/.rabbit"
 INFRA_SOURCE="$ROOT/.rabbit/infra_configs"
 
+scenario "Action metadata supports compatible credential and state-backend configuration"
+assert_eq "$(yq -r '.inputs.gcp_auth_provider.required' "$PROJECT_ROOT/action.yml")" "false" "GCP provider input is optional"
+assert_eq "$(yq -r '.inputs.gcp_service_account.required' "$PROJECT_ROOT/action.yml")" "false" "GCP service account input is optional"
+assert_eq "$(yq -r '.inputs.state_backend.required' "$PROJECT_ROOT/action.yml")" "false" "State backend input is optional"
+assert_eq "$(yq -r '.runs.steps[] | select(.name == "Upload terraform artifacts") | .uses' "$PROJECT_ROOT/action.yml")" "actions/upload-artifact@v6" "Artifact upload uses Node.js 24 action runtime"
+assert_eq "$(yq -r '.runs.steps[] | select(.name == "Upload terraform plans") | .uses' "$PROJECT_ROOT/action.yml")" "actions/upload-artifact@v6" "Plan upload uses Node.js 24 action runtime"
+
 write_yaml "$SOURCE/production/10-base.yaml" 'services:
   - module: test-module
     id: app

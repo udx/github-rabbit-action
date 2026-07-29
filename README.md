@@ -457,13 +457,21 @@ The workflow dispatch inputs provide safe manual control:
 
 ---
 
+## Authentication and state ownership
+
+Existing workflows can keep passing `gcp_auth_provider`, `gcp_service_account`, and optional AWS role inputs to this action. To let the workflow own cloud authentication instead, omit both GCP inputs and run the appropriate provider authentication step first. The action forwards the resulting GCP credential file and any configured AWS environment credentials to its container without copying the GCP credential into the workspace.
+
+The optional state-backend inputs are passed through to the IaC engine. Omit them to retain its existing GCS default; provide the backend type, configuration, and state-path key only when the selected backend requires an override.
+
+---
+
 ## Inputs Reference
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `project_id` | ✅ | — | GCP project ID |
-| `gcp_auth_provider` | ✅ | — | GCP Workload Identity Provider |
-| `gcp_service_account` | ✅ | — | GCP Service Account email |
+| `project_id` | ✅ | — | Project identifier for state and resource operations |
+| `gcp_auth_provider` | — | — | GCP Workload Identity Provider; pair with `gcp_service_account`, or omit both after authenticating in the workflow |
+| `gcp_service_account` | — | — | GCP service account; pair with `gcp_auth_provider`, or omit both after authenticating in the workflow |
 | `aws_role_arn` | — | — | AWS IAM OIDC role ARN |
 | `aws_region` | — | — | AWS region |
 | `dockerhub_username` | — | — | Docker Hub username |
@@ -480,6 +488,9 @@ The workflow dispatch inputs provide safe manual control:
 | `newrelic_account_id` | — | — | New Relic account ID |
 | `newrelic_api_key` | — | — | New Relic API key |
 | `slack_webhook` | — | — | Slack webhook URL |
+| `state_backend` | — | container default (GCS) | Optional backend override, such as `s3`, `azurerm`, `http`, or `consul` |
+| `state_backend_config` | — | — | Backend configuration as `key=value` lines |
+| `state_prefix_key` | — | — | Backend configuration key for the state path, such as `prefix` or `key` |
 | `source_dir` | — | `.rabbit` | Config source directory |
 | `lifecycle_policy_path` | — | bundled policy | Optional caller-repository lifecycle policy shared by resolution and config merging |
 | `github_token` | — | `github.token` | GitHub token passed to lifecycle resolution and used for PR comments |
