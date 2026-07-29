@@ -144,11 +144,13 @@ runs:
       run: |
         set -euo pipefail
         version="v4.44.3"
+        sha256="a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7"
         install_dir="${RUNNER_TEMP:-/tmp}/rabbit-action-bin"
         mkdir -p "$install_dir"
 
         url="https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_amd64"
         curl -fsSL "$url" -o "$install_dir/yq"
+        printf '%s  %s\n' "$sha256" "$install_dir/yq" | sha256sum --check --status
         chmod +x "$install_dir/yq"
         echo "$install_dir" >> "$GITHUB_PATH"
         export PATH="$install_dir:$PATH"
@@ -400,6 +402,7 @@ runs:
         TRIGGER: ${{ github.event_name }}
         R2A_VERSION: ${{ inputs.r2a_version }}
         MULTI_REPO: ${{ inputs.multi_repo }}
+        LIFECYCLE_POLICY_PATH: ${{ steps.resolve-lifecycle.outputs.lifecycle_policy_path }}
         HAS_AWS: ${{ inputs.aws_role_arn != '' && inputs.aws_region != '' }}
       run: |
         config_items="$(printf '%s' "${DETECTED_CONFIGS:-none}" | sed "s/#{Environment}/$ENV_NAME/g" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sed '/^$/d')"

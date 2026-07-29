@@ -23,9 +23,11 @@ jobs:
         run: |
           set -euo pipefail
           version="v4.44.3"
+          sha256="a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7"
           install_dir="${RUNNER_TEMP}/rabbit-action-bin"
           mkdir -p "$install_dir"
           curl -fsSL "https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_amd64" -o "$install_dir/yq"
+          printf '%s  %s\n' "$sha256" "$install_dir/yq" | sha256sum --check --status
           chmod +x "$install_dir/yq"
           echo "$install_dir" >> "$GITHUB_PATH"
 
