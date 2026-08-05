@@ -143,14 +143,17 @@ lifecycle_resolve() {
         fi
     done
 
-    if _lifecycle_allows_subdirectories "$SUBDIR_PREFERRED_LIFECYCLE" && \
-       discovery_find_dir_matching "*/$SUBDIR_PREFERRED_LIFECYCLE/$env_name" "${unique_dirs[@]}" >/dev/null; then
-        echo "$SUBDIR_PREFERRED_LIFECYCLE|environment_subdirectory"
+    # A protected branch remains production even when a development override
+    # directory has the same name. This keeps branch protection ahead of
+    # configuration-layout hints and preserves the deployment safety boundary.
+    if [[ "$is_protected" == "true" ]]; then
+        echo "$PROTECTED_BRANCH_LIFECYCLE|protected_branch"
         return 0
     fi
 
-    if [[ "$is_protected" == "true" ]]; then
-        echo "$PROTECTED_BRANCH_LIFECYCLE|protected_branch"
+    if _lifecycle_allows_subdirectories "$SUBDIR_PREFERRED_LIFECYCLE" && \
+       discovery_find_dir_matching "*/$SUBDIR_PREFERRED_LIFECYCLE/$env_name" "${unique_dirs[@]}" >/dev/null; then
+        echo "$SUBDIR_PREFERRED_LIFECYCLE|environment_subdirectory"
         return 0
     fi
 

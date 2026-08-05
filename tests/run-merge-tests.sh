@@ -147,6 +147,11 @@ write_yaml "$SOURCE/development/dev-alice/20-override.yaml" 'services:
     replicas: 3
     developer: alice'
 
+write_yaml "$SOURCE/development/main/90-protected-branch-override.yaml" 'services:
+  - module: test-module
+    id: protected-branch-override
+    replicas: 99'
+
 write_yaml "$INFRA_SOURCE/production/10-base.yaml" 'services:
   - module: test-module
     id: infra
@@ -230,7 +235,7 @@ assert_eq "$(read_output "$policy_out" lifecycle_policy_path)" "$SOURCE/lifecycl
 run_merge "$SOURCE" "dev-alice" "development" "$TEMP_DIR/policy-merge.out" ".rabbit/lifecycle-policy.yaml"
 assert_file_exists "$(read_output "$TEMP_DIR/policy-merge.out" merged_config)" "Merge remains compatible with caller policy"
 
-scenario "Scenario: protected branch resolves to production"
+scenario "Scenario: protected branch resolves to production before a matching development override"
 mock_bin="$TEMP_DIR/mock-bin"
 mkdir -p "$mock_bin"
 write_yaml "$mock_bin/curl" "#!/usr/bin/env bash
