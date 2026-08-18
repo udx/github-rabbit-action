@@ -33,7 +33,7 @@ The lifecycle root is the base config. Environment or branch files override and 
 
 ## Lifecycle Boundary
 
-This action resolves lifecycle, environment, protected-branch status, and resolution reason before merging configuration. It then owns Rabbit config discovery, merge ordering, manifest merge behavior, deployment safety checks, cloud auth, Terraform/R2A execution, PR comments, summaries, and Slack notifications. It has no runtime dependency on `udx/rabbit-lifecycle`.
+This action resolves lifecycle, environment, protected-branch status, and resolution reason before merging configuration. It then owns Rabbit config discovery, merge ordering, manifest merge behavior, deployment safety checks, Terraform/R2A execution, PR comments, summaries, and Slack notifications. The caller authenticates to cloud providers and this action forwards the established credentials to R2A. It has no runtime dependency on `udx/rabbit-lifecycle`.
 
 Direct local script runs that do not provide `INPUT_LIFECYCLE` use a simple compatibility fallback: explicit lifecycle name, preferred lifecycle subdirectory, then `development`.
 
