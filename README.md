@@ -230,56 +230,14 @@ See [docs/configuration.md](docs/configuration.md) for the repo-owned Rabbit con
 
 ---
 
-## List of Modules
+## Available Modules
 
-### AWS
+The [module library](https://github.com/udx/github-rabbit-action/wiki/Modules)
+is the current configuration reference for every R2A module, including its
+schema, prerequisites, examples, and outputs.
 
-| Module | Description | Order |
-| --- | --- | --- |
-| `aws-route53` | DNS zones and records | 5 |
-| `aws-acm` | SSL/TLS certificates | 8 |
-| `aws-waf` | Web Application Firewall rules | 125 |
-| `aws-cloudfront-distribution` | CDN distribution with origins, behaviors, cache | 130 |
-
-### GCP
-
-| Module | Description | Order |
-| --- | --- | --- |
-| `gcp-networking` | VPC networks and firewall rules | 10 |
-| `gcp-static-ip` | Regional/global static IP addresses | 15 |
-| `gcp-postgresql-instance` | Cloud SQL PostgreSQL instances | 20 |
-| `gcp-sql-instance` | Cloud SQL MySQL instances | 20 |
-| `gcp-gke-cluster` | GKE cluster provisioning | 30 |
-| `gcp-gke-nodepool` | GKE node pool configuration | 40 |
-| `gcp-iam` | IAM roles and service accounts | — |
-| `gcp-secret-manager` | Secret Manager entries | — |
-| `gcp-storage` | Cloud Storage buckets | — |
-| `gcp-monitoring` | Monitoring alert policies | 140 |
-
-### Kubernetes
-
-| Module | Description | Order |
-| --- | --- | --- |
-| `k8s-shared-http-gateway` | Shared HTTP gateway for routing | 55 |
-| `k8s-namespace` | Namespace with labels and annotations | 60 |
-| `k8s-secret` | Kubernetes secrets from config or GCP Secret Manager | 70 |
-| `k8s-access` | RBAC roles and bindings | 80 |
-| `k8s-service` | ClusterIP/LoadBalancer/NodePort services | 90 |
-| `k8s-http-health-check-policy` | Health check policies for gateway routes | 92 |
-| `k8s-http-gateway-route` | HTTP routing rules for gateway | 93 |
-| `k8s-configmap` | ConfigMaps from inline data or files | 95 |
-| `k8s-deployment` | Deployments with rolling updates | 100 |
-| `k8s-memcached` | Memcached StatefulSet | 102 |
-| `k8s-hpa` | Horizontal Pod Autoscaler | 110 |
-| `k8s-pdb` | Pod Disruption Budget | 120 |
-
-### Monitoring
-
-| Module | Description | Order |
-| --- | --- | --- |
-| `newrelic-synthetic-monitors` | New Relic synthetic monitoring | 150 |
-
-**Deployment Order** — services are deployed in ascending order by their module's deployment order. Destroy operations reverse the order.
+Services deploy in ascending module order; destroy operations use the reverse
+order.
 
 ---
 
