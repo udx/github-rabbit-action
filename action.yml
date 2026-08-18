@@ -551,6 +551,16 @@ runs:
             echo "::error title=GCP credentials unavailable::Resolved credentials file is no longer readable."
             exit 1
           fi
+
+          credentials_mode="$(stat -c '%a' "$GCP_CREDENTIALS_PATH")"
+          restore_gcp_credentials_mode() {
+            local status=$?
+            chmod "$credentials_mode" "$GCP_CREDENTIALS_PATH" || true
+            return "$status"
+          }
+          trap restore_gcp_credentials_mode EXIT
+          chmod a+r "$GCP_CREDENTIALS_PATH"
+
           gcp_mount=(-v "$GCP_CREDENTIALS_PATH:/tmp/gcp-credentials.json:ro" -e "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-credentials.json")
         fi
 

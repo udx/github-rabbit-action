@@ -112,6 +112,8 @@ assert_eq "$(yq -r '.runs.steps[] | select(.name == "Upload terraform plans") | 
 assert_eq "$(yq -r '[.runs.steps[] | select(.uses == "google-github-actions/auth@v3" or .uses == "aws-actions/configure-aws-credentials@v6")] | length' "$PROJECT_ROOT/action.yml")" "0" "Action does not configure cloud credentials"
 assert_eq "$(grep -c 'Authenticate with Google Cloud before invoking github-rabbit-action' "$PROJECT_ROOT/action.yml")" "1" "Action requires caller-provided GCP credentials"
 assert_eq "$(grep -c 'AWS credentials configured by the caller workflow' "$PROJECT_ROOT/action.yml")" "1" "Action forwards caller AWS credentials"
+assert_eq "$(grep -c 'chmod a+r "\$GCP_CREDENTIALS_PATH"' "$PROJECT_ROOT/action.yml")" "1" "Action grants the container temporary GCP credential read access"
+assert_eq "$(grep -c 'trap restore_gcp_credentials_mode EXIT' "$PROJECT_ROOT/action.yml")" "1" "Action restores the caller credential file mode"
 
 write_yaml "$SOURCE/production/10-base.yaml" 'services:
   - module: test-module
