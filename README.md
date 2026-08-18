@@ -239,6 +239,13 @@ schema, prerequisites, examples, and outputs.
 Services deploy in ascending module order; destroy operations use the reverse
 order.
 
+## Releases
+
+Use the maintained `@v1` major tag in caller workflows. Patch releases are
+published as immutable `v1.x.y` GitHub releases, then `v1` moves to the tested
+compatible release. See [the release guide](docs/releasing.md) and
+[changelog](CHANGELOG.md).
+
 ---
 
 ## Configuration Reference

@@ -231,9 +231,27 @@ lifecycle_detect_environments() {
         fi
         
         # Standard lifecycle directories (production, staging, development)
-        if [[ " ${ALL_LIFECYCLES[@]} " =~ " ${dir_name} " ]]; then
+        local configured_lifecycle=false
+        local lifecycle
+        for lifecycle in "${ALL_LIFECYCLES[@]}"; do
+            if [[ "$lifecycle" == "$dir_name" ]]; then
+                configured_lifecycle=true
+                break
+            fi
+        done
+
+        if [[ "$configured_lifecycle" == true ]]; then
             # Add once
-            if [[ ! " ${found_lifecycles[@]} " =~ " ${dir_name} " ]]; then
+            local already_found=false
+            local found_lifecycle
+            for found_lifecycle in "${found_lifecycles[@]}"; do
+                if [[ "$found_lifecycle" == "$dir_name" ]]; then
+                    already_found=true
+                    break
+                fi
+            done
+
+            if [[ "$already_found" == false ]]; then
                 envs_ref+=("$dir_name")
                 found_lifecycles+=("$dir_name")
                 dbg "Detected $dir_name at: $dir" >&2

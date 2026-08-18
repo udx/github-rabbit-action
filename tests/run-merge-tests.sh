@@ -228,6 +228,23 @@ run_resolve "$SOURCE" "dev-alice" "$subdir_out"
 assert_eq "$(read_output "$subdir_out" lifecycle)" "development" "Development subdirectory resolves in-repo"
 assert_eq "$(read_output "$subdir_out" resolution_reason)" "environment_subdirectory" "Subdirectory reason is recorded"
 
+scenario "Scenario: lifecycle discovery recognizes configured roots once"
+detected_lifecycles="$TEMP_DIR/detected-lifecycles.out"
+(
+  GITHUB_WORKSPACE="$ROOT"
+  INPUT_SOURCE_DIR="$SOURCE"
+  INPUT_ENV_NAME=""
+  INPUT_LIFECYCLE_POLICY_PATH=""
+  source "$PROJECT_ROOT/bin/lib/config.sh"
+  source "$PROJECT_ROOT/bin/lib/lifecycle.sh"
+  detected=()
+  lifecycle_detect_environments "$SOURCE" detected
+  printf '%s\n' "${detected[@]}"
+) > "$detected_lifecycles"
+assert_eq "$(grep -cx 'production' "$detected_lifecycles")" "1" "Production lifecycle is discovered once"
+assert_eq "$(grep -cx 'staging' "$detected_lifecycles")" "1" "Staging lifecycle is discovered once"
+assert_eq "$(grep -cx 'development' "$detected_lifecycles")" "1" "Development lifecycle is discovered once"
+
 scenario "Scenario: resolver uses a caller lifecycle policy for both policy metadata and merge"
 policy_out="$TEMP_DIR/policy.out"
 run_resolve "$SOURCE" "dev-alice" "$policy_out" ".rabbit/lifecycle-policy.yaml"

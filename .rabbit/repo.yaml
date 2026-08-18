@@ -5,6 +5,14 @@ repository:
   owner: udx
   default_branch: production
 branches:
+  - name: dependabot/github_actions/actions/checkout-7
+    rules: {}
+  - name: dependabot/github_actions/actions/github-script-9
+    rules: {}
+  - name: dependabot/github_actions/actions/upload-artifact-7
+    rules: {}
+  - name: fix/gcp-credential-mount
+    rules: {}
   - name: infra-templates
     rules: {}
   - name: lifecycle-action-integration
@@ -60,6 +68,13 @@ workflows:
       push:
         branches:
           - production
-          - lifecycle-action-integration
+      workflow_dispatch: {}
+    permissions:
+      contents: read
+  - path: .github/workflows/release.yml
+    triggers:
+      release:
+        types:
+          - published
     permissions:
       contents: read
