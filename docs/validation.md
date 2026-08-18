@@ -8,9 +8,9 @@ Run these before opening or updating a PR:
 
 ```bash
 make test
-dev.kit repo
+rabbit.ci
 ```
 
 ## CI
 
-The `ci` workflow runs on pull requests and pushes to `production` and `lifecycle-action-integration`. It installs a pinned `yq` binary, runs `make test`, and refreshes repo context with `@udx/dev-kit`.
+The `ci` workflow runs on pull requests and pushes to `production` and `lifecycle-action-integration`. It installs a pinned `yq` binary and runs `make test`.

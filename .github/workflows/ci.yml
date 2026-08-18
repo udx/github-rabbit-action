@@ -34,7 +34,3 @@ jobs:
       - name: Run validation
         shell: bash
         run: make test
-
-      - name: Refresh repo context
-        shell: bash
-        run: npx -y @udx/dev-kit@0.20.1 repo

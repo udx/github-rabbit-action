@@ -553,7 +553,7 @@ Notifications include environment, change counts, failure stage, and a link to t
 
 ## Development
 
-The local validation contract is documented in [docs/validation.md](docs/validation.md). Run `make test` and `dev.kit repo` before updating a PR.
+The local validation contract is documented in [docs/validation.md](docs/validation.md). Run `make test` and `rabbit.ci` before updating a PR.
 
 ---
 
